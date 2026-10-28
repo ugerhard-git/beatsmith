@@ -107,12 +107,13 @@ discussed in detail, and the owner gives an explicit **go**, before work on them
 
 - Documents: CONTRIBUTING.md, CLAUDE.md, docs/ARCHITECTURE.md, docs/MANUAL.md (skeleton),
   pull request template. **Done.**
-- Tooling: `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitattributes` (from MIDI Forge).
-- CMake skeleton: engine library, engine tests, plug-in, plug-in layer tests; JUCE pinned.
+- Tooling: `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitattributes` (from MIDI Forge). **Done.**
+- CMake skeleton: engine library, engine tests, plug-in, plug-in layer tests; JUCE pinned. **Done.**
 - CI (`build.yml`): format + lint + engine tests (+ sanitizers) on Linux, plug-in layer tests and editor
   screenshots, Windows VST3 build, CodeQL for C++, release job for `v*` tags with SHA-256 checksums and
-  build-provenance attestations.
+  build-provenance attestations. **Done.**
 - Result: an empty Beatsmith that loads in Reaper and Bitwig, shows a window and outputs nothing.
+  *Waiting for the owner's test in both hosts.*
 
 ### Phase 1 – A playable sequencer (first useful version)
 
@@ -190,7 +191,8 @@ To be settled before the phase that needs them; each answer moves into section 2
 1. **Parameter locks / CC per step** – in which phase, and which values can be locked?
 2. **Pattern bank size** – e.g. 4 banks × 16 patterns?
 3. **Swing in odd and compound meters** – how swing applies within 2- and 3-groups; global or per lane?
-4. **Pattern switching by MIDI** – which notes/channel, and is it quantised?
+4. **Pattern switching by MIDI** – which notes/channel, and is it quantised? Until then all incoming MIDI
+   passes through unchanged (phase 0 behaviour); decide whether switch notes are then filtered out.
 5. **Song / chain mode** – needed inside the plug-in, or is the DAW arrangement (MIDI switching) enough?
 
 ## 7. Technical notes and risks

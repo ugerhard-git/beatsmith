@@ -70,10 +70,10 @@ The repository and its builds:
 
 ## Verifying a release
 
-Each release lists a SHA-256 checksum for every download. On Windows:
+Each release has a `SHA256SUMS.txt` with the checksum of every download. On Windows:
 
 ```powershell
-Get-FileHash .\Beatsmith-<version>-win64.zip -Algorithm SHA256
+Get-FileHash .\Beatsmith-Windows-v<version>.zip -Algorithm SHA256
 ```
 
 Compare the result with the checksum on the release page. With the
@@ -81,5 +81,5 @@ Compare the result with the checksum on the release page. With the
 built by this repository's CI:
 
 ```powershell
-gh attestation verify .\Beatsmith-<version>-win64.zip --repo ugerhard-git/beatsmith
+gh attestation verify .\Beatsmith-Windows-v<version>.zip --repo ugerhard-git/beatsmith
 ```

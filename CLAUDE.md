@@ -55,8 +55,6 @@ Read first: [PLAN.md](PLAN.md) (what is built, decisions, current phase), then
 
 ## Useful commands
 
-Available once the phase 0 CMake skeleton exists:
-
 ```sh
 cmake -S . -B build -DBEATSMITH_BUILD_PLUGIN=OFF -DBEATSMITH_WARNINGS_AS_ERRORS=ON && cmake --build build && ctest --test-dir build --output-on-failure
 clang-format -i $(git ls-files '*.cpp' '*.h')

@@ -1,0 +1,20 @@
+Beatsmith - installation
+========================
+
+Windows (VST3)
+--------------
+  Copy "Beatsmith.vst3" to  C:\Program Files\Common Files\VST3\
+
+Then rescan plug-ins in your DAW.
+
+Using it
+--------
+  Reaper: put Beatsmith on a track's FX chain *before* the drum instrument.
+  Bitwig: put Beatsmith in the Note FX section of the drum instrument (or before it).
+
+Checking the download
+---------------------
+  The release page lists a SHA-256 checksum for the zip. See SECURITY.md in the
+  source repository (github.com/ugerhard-git/beatsmith) for how to verify it.
+
+The full manual is docs/MANUAL.md in the source repository.

@@ -59,8 +59,6 @@ Nothing has to be built locally: every push builds the plug-in on GitHub Actions
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#build-and-ci)). To build locally anyway you need CMake ≥ 3.28,
 a C++17 compiler and Git.
 
-> The commands below become available with the phase 0 CMake skeleton.
-
 ```sh
 # Engine tests only (fast, no JUCE download)
 cmake -S . -B build -DBEATSMITH_BUILD_PLUGIN=OFF -DBEATSMITH_WARNINGS_AS_ERRORS=ON
@@ -80,7 +78,7 @@ Results land in `build/Beatsmith_artefacts/Release/VST3`.
 ## Checks to run before pushing
 
 ```sh
-pip install clang-format==19.1.7           # the version CI uses
+pip install --require-hashes --no-deps -r .github/requirements-ci.txt   # clang-format 19.1.7 as in CI
 clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.h')
 clang-tidy -p build Source/Engine/*.cpp Tests/Engine/*.cpp
 ctest --test-dir build --output-on-failure
@@ -91,8 +89,8 @@ Format everything in place with `clang-format -i $(git ls-files '*.cpp' '*.h')`.
 ## Releases
 
 Bump `project(Beatsmith VERSION x.y.z)` in `CMakeLists.txt`, update the manual and PLAN.md if needed, then
-push a tag `vx.y.z`. CI builds the plug-in and publishes the release with SHA-256 checksums and
-build-provenance attestations.
+push a tag `vx.y.z` (CI refuses a tag that does not match the version). CI builds the plug-in and publishes
+the release with SHA-256 checksums and build-provenance attestations.
 
 ## Pull requests
 

@@ -38,7 +38,7 @@ Non-goals (for now): producing sound itself, macOS, CLAP, AU, standalone app.
 | Builds | Only on GitHub Actions; the owner does not build locally |
 | License | GNU AGPLv3 (JUCE is used under its AGPLv3 option) |
 | Repository workflow | Every change through a pull request; required CI checks; squash merge; owner merges |
-| Default drum map | **General MIDI** drum map. Users can change each lane's note and channel and **save their own kits** |
+| Default drum map | **General MIDI** drum map on MIDI channel 10 (the GM drum channel). Users can change each lane's note and channel and **save their own kits** |
 | Conditional trigs | **In scope**, with a thorough, example-rich chapter in the user manual |
 | Relationship to MIDI Forge | Reuse its structure, conventions, CI and suitable code (preset library, look and feel, test framework) **as far as useful**; Beatsmith may diverge where its needs differ |
 | Ground rules | Same as MIDI Forge (to be written into CONTRIBUTING.md and CLAUDE.md) |
@@ -49,7 +49,11 @@ Non-goals (for now): producing sound itself, macOS, CLAP, AU, standalone app.
 | Lane realignment | **User setting**: at song start only, at every pattern restart, or every N bars |
 | Maximum length | **128 steps** per lane and per pattern |
 | Lanes | **Up to 16** per pattern. Lanes are added and removed as needed; only lanes in use are shown |
-| Note length | Short fixed gate per lane by default (1/32 note or about 50 ms – the exact value is set when building phase 1), adjustable per lane and per step |
+| Note length | Gate per lane, default **1/32 note**, adjustable per lane and per step |
+| Pattern length | A number of **bars** in the pattern's meter (e.g. 4 bars of 7/8). Lanes loop inside it independently; "realign at pattern restart" means every time these bars come round |
+| Step editing | Click toggles a trig at the lane's default velocity; drag up/down on a step sets its velocity (the fill height shows it); Shift-click or right-click toggles an **accent**, which plays at the lane's accent velocity |
+| Host automation (phase 1) | **Mute per lane** only. Pattern data is saved with the project but not automatable (step data would mean thousands of host parameters). The Fill button joins in phase 3 |
+| Incoming MIDI | Passes through unchanged. Live recording into the grid is an idea for later ([docs/IDEAS.md](docs/IDEAS.md)) |
 | Host stopped | **Silent** by default; an **Audition** button plays the pattern on its own (at the host's tempo) for programming without starting the DAW |
 | Editor | **Resizable** window; the grid scrolls and zooms horizontally |
 | Host meter changes | **User setting**: when the host's time signature changes mid-pattern, either restart the pattern at the next bar or keep its own phase |
@@ -118,26 +122,46 @@ discussed in detail, and the owner gives an explicit **go**, before work on them
 ### Phase 1 – A playable sequencer (first useful version)
 
 The data model and the editor are designed for odd meters, polymeters and polyrhythms from the start,
-because adding them later would mean reworking both.
+because adding them later would mean reworking both. Phase 1 is built in three steps, each a pull request
+the owner can test.
 
-- Up to 16 lanes, added and removed as needed (only lanes in use are shown), each with up to 128 steps;
-  step on/off by clicking and dragging.
-- Per-step velocity, with a quick accent gesture.
-- Note length (gate) per lane, optionally per step; short fixed default.
-- GM default kit; per-lane name, note and channel editable; mute and solo per lane.
-- **Meter**: follows the host's time signature; per-pattern override with beat grouping (common
-  groupings offered per meter, e.g. 7/8 → 2+2+3, 3+2+2, 2+3+2).
-- **Per-lane length** (1–128) and **per-lane rate**: common rates in a quick menu, free tuplets
-  "N in M" for everything else.
-- **Realignment** setting: song start, every pattern restart, or every N bars.
-- **Host meter change** setting: restart at the next bar or keep the pattern's phase.
-- Editor laid out by bars and beat groups (not fixed pages of 16); steps beyond a lane's length greyed
-  out; lanes with other rates drawn at their true time width so they line up visually.
-- Host sync: follows tempo, time signature, position, loops and jumps; silent while the host is stopped.
+**1a – Timing engine** (no editor yet)
+
+- Data model: pattern (meter source and override with beat grouping, length in bars, realignment, host
+  meter-change behaviour), up to 16 lanes (note, channel, length 1–128, rate incl. free tuplets, gate,
+  default and accent velocity, mute, solo), up to 128 steps per lane (on, velocity, accent). Every field is
+  validated and clamped.
+- Musical time: steps computed from the host position (exact fractions), bars from the host's time
+  signature and bar position or from the pattern's own meter, realignment at song start, every pattern
+  restart or every N bars, host meter changes handled per setting.
+- Note scheduler: sample-accurate note-ons and note-offs across blocks, loops (also inside a block), jumps,
+  tempo changes, stop and bypass; retriggered notes end before they restart; capacity limits never drop a
+  note-off.
+- A **built-in test pattern** plays, so timing can be checked in Reaper before the editor exists.
+- Tests: block-size independence, odd meters, polymeters, tuplets, jumps and loops (same result as
+  starting fresh at that position), randomized no-stuck-notes stress test, no memory allocation while
+  processing.
+
+**1b – The grid editor**
+
+- Grid laid out by bars and beat groups (not fixed pages of 16); steps beyond a lane's length greyed out;
+  lanes with other rates drawn at their true time width so they line up visually; playhead per lane.
+- Step editing as decided (click, drag for velocity, Shift-click/right-click for accent).
+- Horizontal scrolling and zooming.
+- Lock-free hand-over of edits from the editor to the audio thread.
+
+**1c – Lanes and settings**
+
+- Add and remove lanes (up to 16; only lanes in use are shown); per-lane name, note, channel, gate,
+  default and accent velocity; mute (host-automatable) and solo.
+- GM default kit for new lanes.
+- Meter source and override with beat grouping (common groupings offered per meter, e.g. 7/8 → 2+2+3,
+  3+2+2, 2+3+2); pattern length in bars.
+- Per-lane length and rate: common rates in a quick menu, free tuplets "N in the time of M" for
+  everything else.
+- Realignment and host meter-change settings.
 - Audition button: plays the pattern without the host transport, for programming.
-- Resizable editor; the grid scrolls and zooms horizontally.
-- Sample-accurate note output; no stuck notes (stop, loop, jump, edits, kit changes, bypass).
-- State saved in the DAW project.
+- Pattern saved in the DAW project (versioned, validated).
 - Release `v0.1.0`.
 
 ### Phase 2 – Feel

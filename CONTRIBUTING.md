@@ -78,7 +78,7 @@ Results land in `build/Beatsmith_artefacts/Release/VST3`.
 ## Checks to run before pushing
 
 ```sh
-pip install --require-hashes --no-deps -r .github/requirements-ci.txt   # clang-format 19.1.7 as in CI
+pip install --require-hashes --no-deps -r .github/requirements-ci.txt   # the clang-format version CI uses
 clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.h')
 clang-tidy -p build Source/Engine/*.cpp Tests/Engine/*.cpp
 ctest --test-dir build --output-on-failure

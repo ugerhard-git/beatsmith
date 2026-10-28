@@ -130,8 +130,10 @@ not to the JUCE sources compiled into the plug-in.
    `docs/images/editor.png`).
 3. **Plug-in (Windows)**: builds the VST3 and uploads it with `INSTALL.txt` as artifact
    `Beatsmith-Windows`. On a tag it first checks that the tag matches the version in `CMakeLists.txt`.
-4. **CodeQL (C++)**: security analysis (`security-extended` queries) of a full build; results appear under
-   the repository's *Security → Code scanning*. Configuration in `.github/codeql/codeql-config.yml`.
+4. **CodeQL (C++)**: security analysis (`security-extended` queries) of Beatsmith's own code; results appear
+   under the repository's *Security → Code scanning*. CodeQL analyses every file compiled while it watches the
+   build, and its path filters do not apply to C++, so the job first builds everything without CodeQL, then
+   deletes only our own object files and rebuilds them under CodeQL. JUCE thus stays out of the results.
 5. **Publish release** (tags `v*` only, after all other jobs pass): zips the build as
    `Beatsmith-Windows-vX.Y.Z.zip`, writes `SHA256SUMS.txt`, creates a build-provenance attestation and
    publishes the GitHub release. Only this job has write permissions.

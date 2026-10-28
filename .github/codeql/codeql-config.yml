@@ -1,9 +1,0 @@
-# CodeQL configuration: focus the results on Beatsmith's own code. JUCE is compiled together with it; findings
-# that CodeQL still reports inside JUCE belong upstream and can be dismissed.
-name: Beatsmith CodeQL config
-paths:
-  - Source
-  - Tests
-paths-ignore:
-  - .deps
-  - build

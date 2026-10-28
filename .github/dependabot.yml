@@ -1,0 +1,31 @@
+# Dependabot keeps pinned dependencies up to date by opening pull requests.
+# Every update still goes through CI and a manual merge.
+version: 2
+updates:
+  # GitHub Actions used in .github/workflows (pinned to commit SHAs).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # Python tools installed by CI (workflow linters), pinned in
+  # .github/requirements-ci.txt.
+  - package-ecosystem: "pip"
+    directory: "/.github"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      ci-tools:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # Once JUCE is added as a git submodule, add a "gitsubmodule" entry here so
+  # new JUCE releases arrive as pull requests too.

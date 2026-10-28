@@ -1,0 +1,42 @@
+# Audits this repository's GitHub Actions workflows for security problems
+# (unpinned actions, excessive permissions, template injection, leaked
+# credentials, dangerous triggers, ...) using zizmor.
+#
+# The job name "Workflow security audit" is a required status check on main.
+name: Workflow security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# No permissions unless a job asks for them explicitly.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Workflow security audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor (hash-pinned)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ci-tools"
+          "$RUNNER_TEMP/ci-tools/bin/pip" install --require-hashes --no-deps \
+            -r .github/requirements-ci.txt
+
+      - name: Audit workflows
+        run: |
+          "$RUNNER_TEMP/ci-tools/bin/zizmor" --offline --format plain \
+            --min-severity low .github/workflows

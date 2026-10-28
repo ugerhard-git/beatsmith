@@ -1,5 +1,5 @@
 # Formatting rules for all C++ code. Check with: clang-format --dry-run --Werror <files>
-# CI uses clang-format 19.1.7 (pip install clang-format==19.1.7); other versions may format slightly differently.
+# CI uses the clang-format version pinned in .github/requirements-ci.txt; other versions may format slightly differently.
 ---
 Language: Cpp
 Standard: c++17

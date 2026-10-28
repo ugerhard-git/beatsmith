@@ -42,8 +42,12 @@ void BeatsmithEditor::paint (juce::Graphics& g)
 
     g.setColour (Theme::Colours::primaryText);
     g.setFont (Theme::font (16.0f));
-    g.drawFittedText ("The step sequencer arrives with phase 1.\nThis version does not play anything yet.", area,
-                      juce::Justification::centred, 2);
+    g.drawFittedText ("Timing test version (phase 1a)\n\n"
+                      "A built-in test pattern plays while your DAW plays:\n"
+                      "kick, snare, closed hi-hat, side stick (5 per 4/4 bar) and cowbell (every 3rd 1/16),\n"
+                      "General MIDI notes on MIDI channel 10.\n\n"
+                      "The step grid arrives with phase 1b.",
+                      area.reduced (Theme::Layout::outerMargin), juce::Justification::centred, 8);
 }
 
 void BeatsmithEditor::resized()

@@ -1,6 +1,7 @@
 /**
  * @file PluginTests.cpp
- * @brief Tests of the JUCE plug-in layer: plug-in type, MIDI pass-through, bypass, state and editor.
+ * @brief Tests of the JUCE plug-in layer: plug-in type, reading the host's transport, the test pattern, MIDI
+ *        pass-through, bypass, state and editor.
  *
  * Usage: beatsmith_plugin_tests [name filter] [--snapshot-dir folder]
  * With --snapshot-dir the editor is rendered to editor.png in that folder. CI publishes it for visual
@@ -13,6 +14,10 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 using namespace beatsmith;
 
 namespace
@@ -20,7 +25,7 @@ namespace
 constexpr double testSampleRate = 48000.0;
 constexpr int testBlockSize = 512;
 
-/** A playhead that reports a fixed tempo and transport state, as a host would. */
+/** A playhead that reports what a host would: tempo, transport, position, bar start and time signature. */
 class FakePlayHead final : public juce::AudioPlayHead
 {
 public:
@@ -31,14 +36,39 @@ public:
         PositionInfo info;
         info.setBpm (120.0);
         info.setIsPlaying (isPlaying);
-        info.setPpqPosition (0.0);
-        info.setTimeSignature (TimeSignature { 7, 8 });
+        info.setPpqPosition (positionInQuarterNotes);
+        const double barLength = 4.0 * numerator / denominator;
+        info.setPpqPositionOfLastBarStart (std::floor (positionInQuarterNotes / barLength + 1.0e-9) * barLength);
+        info.setTimeSignature (TimeSignature { numerator, denominator });
         return info;
     }
 
-private:
+    /** Moves the position on by one block, as the host does after each block. */
+    void advanceByOneBlock() { positionInQuarterNotes += testBlockSize * 120.0 / 60.0 / testSampleRate; }
+
     bool isPlaying;
+    double positionInQuarterNotes = 0.0;
+    int numerator = 4;
+    int denominator = 4;
 };
+
+/** Prepares a processor as a host does before playback. */
+void prepare (BeatsmithProcessor& processor)
+{
+    processor.setRateAndBufferSizeDetails (testSampleRate, testBlockSize);
+    processor.prepareToPlay (testSampleRate, testBlockSize);
+}
+
+/** @return The note numbers of all note-ons in a buffer. */
+std::vector<int> noteOnNumbersIn (const juce::MidiBuffer& buffer)
+{
+    std::vector<int> noteNumbers;
+    for (const auto metadata : buffer)
+        if (metadata.getMessage().isNoteOn())
+            noteNumbers.push_back (metadata.getMessage().getNoteNumber());
+    std::sort (noteNumbers.begin(), noteNumbers.end());
+    return noteNumbers;
+}
 
 /** Runs one block through the processor and returns the MIDI it produced. */
 juce::MidiBuffer processBlock (BeatsmithProcessor& processor, const juce::MidiBuffer& input, bool bypassed = false)
@@ -104,45 +134,105 @@ TEST_CASE ("plugin: is a MIDI effect without audio buses")
     EXPECT (processor.hasEditor());
 }
 
-TEST_CASE ("plugin: produces nothing on its own, playing or stopped")
-{
-    for (const bool hostIsPlaying : { true, false })
-    {
-        BeatsmithProcessor processor;
-        FakePlayHead playHead (hostIsPlaying);
-        processor.setPlayHead (&playHead);
-        processor.prepareToPlay (testSampleRate, testBlockSize);
-        for (int blockIndex = 0; blockIndex < 50; ++blockIndex)
-            EXPECT (processBlock (processor, {}).isEmpty());
-        processor.setPlayHead (nullptr);
-    }
-}
-
-TEST_CASE ("plugin: works without a playhead")
+TEST_CASE ("plugin: plays the test pattern on channel 10 while the host plays")
 {
     BeatsmithProcessor processor;
-    processor.prepareToPlay (testSampleRate, testBlockSize);
-    EXPECT (processBlock (processor, {}).isEmpty());
+    FakePlayHead playHead (true);
+    processor.setPlayHead (&playHead);
+    prepare (processor);
+
+    const auto output = processBlock (processor, {});
+    // Bar start: kick, closed hi-hat, side stick and cowbell; the snare comes on the second beat.
+    EXPECT ((noteOnNumbersIn (output) == std::vector<int> { 36, 37, 42, 56 }));
+    for (const auto metadata : output)
+    {
+        EXPECT (metadata.getMessage().getChannel() == 10);
+        EXPECT (metadata.samplePosition == 0);
+    }
+    processor.setPlayHead (nullptr);
+}
+
+TEST_CASE ("plugin: follows the host's 7/8 bars")
+{
+    BeatsmithProcessor processor;
+    FakePlayHead playHead (true);
+    playHead.numerator = 7;
+    playHead.denominator = 8;
+    processor.setPlayHead (&playHead);
+    prepare (processor);
+
+    // Two bars of 7/8 at 120 BPM: the kick plays at the start of each bar (every 84000 samples) and on the
+    // ninth 1/16 (48000 samples into the bar).
+    std::vector<int> kickTimes;
+    for (int blockIndex = 0; (blockIndex + 1) * testBlockSize <= 2 * 84000; ++blockIndex)
+    {
+        for (const auto metadata : processBlock (processor, {}))
+            if (metadata.getMessage().isNoteOn() && metadata.getMessage().getNoteNumber() == 36)
+                kickTimes.push_back (blockIndex * testBlockSize + metadata.samplePosition);
+        playHead.advanceByOneBlock();
+    }
+    EXPECT ((kickTimes == std::vector<int> { 0, 48000, 84000, 132000 }));
+    processor.setPlayHead (nullptr);
+}
+
+TEST_CASE ("plugin: silent while the host is stopped or without a playhead")
+{
+    BeatsmithProcessor stoppedProcessor;
+    FakePlayHead stoppedPlayHead (false);
+    stoppedProcessor.setPlayHead (&stoppedPlayHead);
+    prepare (stoppedProcessor);
+    for (int blockIndex = 0; blockIndex < 50; ++blockIndex)
+        EXPECT (processBlock (stoppedProcessor, {}).isEmpty());
+    stoppedProcessor.setPlayHead (nullptr);
+
+    BeatsmithProcessor processorWithoutPlayHead;
+    prepare (processorWithoutPlayHead);
+    EXPECT (processBlock (processorWithoutPlayHead, {}).isEmpty());
 }
 
 TEST_CASE ("plugin: incoming MIDI passes through unchanged")
 {
     BeatsmithProcessor processor;
-    FakePlayHead playHead (true);
+    FakePlayHead playHead (false);
     processor.setPlayHead (&playHead);
-    processor.prepareToPlay (testSampleRate, testBlockSize);
-
+    prepare (processor);
     const auto input = exampleIncomingMidi();
     EXPECT (toEventList (processBlock (processor, input)) == toEventList (input));
+
+    // While playing, the input is still all there, with the pattern's notes added.
+    playHead.isPlaying = true;
+    const auto output = toEventList (processBlock (processor, input));
+    for (const auto& event : toEventList (input))
+        EXPECT (std::find (output.begin(), output.end(), event) != output.end());
+    EXPECT (output.size() > toEventList (input).size());
     processor.setPlayHead (nullptr);
 }
 
-TEST_CASE ("plugin: incoming MIDI passes through while bypassed")
+TEST_CASE ("plugin: bypassing ends sounding notes and passes MIDI through")
 {
     BeatsmithProcessor processor;
-    processor.prepareToPlay (testSampleRate, testBlockSize);
-    const auto input = exampleIncomingMidi();
-    EXPECT (toEventList (processBlock (processor, input, true)) == toEventList (input));
+    FakePlayHead playHead (true);
+    processor.setPlayHead (&playHead);
+    prepare (processor);
+
+    const auto started = processBlock (processor, {}); // four notes start; their gates outlast the block
+    const auto bypassed = processBlock (processor, exampleIncomingMidi(), true);
+
+    int noteOffsAtStart = 0;
+    for (const auto metadata : bypassed)
+        if (metadata.getMessage().isNoteOff() && metadata.getMessage().getChannel() == 10 &&
+            metadata.samplePosition == 0)
+            ++noteOffsAtStart;
+    EXPECT (noteOffsAtStart == (int) noteOnNumbersIn (started).size());
+    for (const auto& event : toEventList (exampleIncomingMidi()))
+    {
+        const auto all = toEventList (bypassed);
+        EXPECT (std::find (all.begin(), all.end(), event) != all.end());
+    }
+
+    // Bypassed again: nothing left to end.
+    EXPECT (toEventList (processBlock (processor, {}, true)).empty());
+    processor.setPlayHead (nullptr);
 }
 
 TEST_CASE ("state: editor size survives saving and loading")

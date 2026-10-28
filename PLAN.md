@@ -8,7 +8,7 @@ This document records **what** we build, **in which order**, and the **decisions
 updated whenever a decision is made or a phase is finished. Ideas that are discussed but not scheduled go
 into [docs/IDEAS.md](docs/IDEAS.md); once something is scheduled it moves here.
 
-Status: **phase 0 done** (empty plug-in, build and CI; confirmed in Reaper) – phase 1 is being planned in detail.
+Status: **phase 0 done**; **phase 1a** (timing engine with a test pattern) is ready for testing.
 
 ---
 
@@ -141,6 +141,10 @@ the owner can test.
 - Tests: block-size independence, odd meters, polymeters, tuplets, jumps and loops (same result as
   starting fresh at that position), randomized no-stuck-notes stress test, no memory allocation while
   processing.
+- **Built** (version 0.0.2) – waiting for the owner's test in Reaper (see the manual's test-version chapter).
+  Implementation details decided along the way: steps last between a 1/64 note and four whole notes; free
+  tuplets go up to 32 in 32; gates are set in 1/64 notes; a time-signature change inside an audio block plays
+  the missed steps up to one block late; tempo changes inside a block never lose or double a step.
 
 **1b – The grid editor**
 

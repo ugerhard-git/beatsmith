@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-project(Beatsmith VERSION 0.0.1 LANGUAGES C CXX)
+project(Beatsmith VERSION 0.0.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,13 @@ endif()
 add_library(beatsmith_engine STATIC
     Source/Engine/BlockContext.h
     Source/Engine/NoteEvent.h
+    Source/Engine/Fraction.h
+    Source/Engine/Pattern.h
+    Source/Engine/Pattern.cpp
+    Source/Engine/MusicalTimeline.h
+    Source/Engine/MusicalTimeline.cpp
+    Source/Engine/TestPattern.h
+    Source/Engine/TestPattern.cpp
     Source/Engine/BeatsmithEngine.h
     Source/Engine/BeatsmithEngine.cpp)
 target_include_directories(beatsmith_engine PUBLIC Source)
@@ -60,8 +67,11 @@ if(BEATSMITH_BUILD_ENGINE_TESTS)
     enable_testing()
     add_executable(beatsmith_engine_tests
         Tests/TestFramework.h
+        Tests/Engine/EngineTestRig.h
         Tests/Engine/EngineTestMain.cpp
-        Tests/Engine/EngineSkeletonTests.cpp)
+        Tests/Engine/PatternTests.cpp
+        Tests/Engine/TimingTests.cpp
+        Tests/Engine/NoteSafetyTests.cpp)
     target_link_libraries(beatsmith_engine_tests PRIVATE beatsmith_engine beatsmith_warnings)
     add_test(NAME engine COMMAND beatsmith_engine_tests)
 endif()

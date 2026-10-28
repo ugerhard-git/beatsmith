@@ -1,0 +1,50 @@
+# --- Build output (CMake / JUCE) ---
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+_deps/
+*.vst3/
+*.vst3
+*.clap
+*.dll
+*.exe
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.so
+
+# --- IDEs and editors ---
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.sln.DotSettings.user
+*.user
+*.suo
+*.swp
+*~
+
+# --- OS clutter ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Local secrets and environment (never commit these) ---
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+
+# --- Python helpers used by CI ---
+.venv/
+__pycache__/

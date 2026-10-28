@@ -106,7 +106,7 @@ discussed in detail, and the owner gives an explicit **go**, before work on them
 ### Phase 0 – Groundwork
 
 - Documents: CONTRIBUTING.md, CLAUDE.md, docs/ARCHITECTURE.md, docs/MANUAL.md (skeleton),
-  pull request template.
+  pull request template. **Done.**
 - Tooling: `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitattributes` (from MIDI Forge).
 - CMake skeleton: engine library, engine tests, plug-in, plug-in layer tests; JUCE pinned.
 - CI (`build.yml`): format + lint + engine tests (+ sanitizers) on Linux, plug-in layer tests and editor

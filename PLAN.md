@@ -48,6 +48,8 @@ Non-goals (for now): producing sound itself, macOS, CLAP, AU, standalone app.
 | Polyrhythms | **Core feature.** Every lane has its own rate: common values (1/32 … 1/2, triplet, dotted) one click away, plus **free tuplets** ("N steps in the time of M beats") |
 | Lane realignment | **User setting**: at song start only, at every pattern restart, or every N bars |
 | Maximum length | **128 steps** per lane and per pattern |
+| Lanes | **Up to 16** per pattern. Lanes are added and removed as needed; only lanes in use are shown |
+| Host meter changes | **User setting**: when the host's time signature changes mid-pattern, either restart the pattern at the next bar or keep its own phase |
 | Step position | Computed from the host position (anchor + step duration + lane length), never counted, so loops and jumps always land on the right step in every lane |
 
 ## 3. Concepts and vocabulary
@@ -114,15 +116,17 @@ discussed in detail, and the owner gives an explicit **go**, before work on them
 The data model and the editor are designed for odd meters, polymeters and polyrhythms from the start,
 because adding them later would mean reworking both.
 
-- Lanes (count: **open decision 1**) with up to 128 steps; step on/off by clicking and dragging.
+- Up to 16 lanes, added and removed as needed (only lanes in use are shown), each with up to 128 steps;
+  step on/off by clicking and dragging.
 - Per-step velocity, with a quick accent gesture.
-- Note length (gate) per lane, optionally per step (default: **open decision 7**).
+- Note length (gate) per lane, optionally per step (default: **open decision 6**).
 - GM default kit; per-lane name, note and channel editable; mute and solo per lane.
 - **Meter**: follows the host's time signature; per-pattern override with beat grouping (common
   groupings offered per meter, e.g. 7/8 → 2+2+3, 3+2+2, 2+3+2).
 - **Per-lane length** (1–128) and **per-lane rate**: common rates in a quick menu, free tuplets
   "N in M" for everything else.
 - **Realignment** setting: song start, every pattern restart, or every N bars.
+- **Host meter change** setting: restart at the next bar or keep the pattern's phase.
 - Editor laid out by bars and beat groups (not fixed pages of 16); steps beyond a lane's length greyed
   out; lanes with other rates drawn at their true time width so they line up visually.
 - Host sync: follows tempo, time signature, position, loops and jumps; plays only while the host plays.
@@ -132,7 +136,7 @@ because adding them later would mean reworking both.
 
 ### Phase 2 – Feel
 
-- Swing that follows the beat grouping (**open decision 4**).
+- Swing that follows the beat grouping (**open decision 3**).
 - Per-step micro-timing (nudge early/late).
 - Humanize (random timing and velocity amount).
 - Accent helpers that follow the beat grouping (e.g. "accent every group start").
@@ -150,10 +154,10 @@ because adding them later would mean reworking both.
 
 ### Phase 4 – Patterns and structure
 
-- Pattern bank (size: **open decision 3**), copy/paste/clear, shift, reverse.
+- Pattern bank (size: **open decision 2**), copy/paste/clear, shift, reverse.
 - Pattern switching: in the editor (quantised to pattern end), by host parameter, and by incoming MIDI
-  notes so DAW clips can choose patterns (**open decision 5**).
-- Chains / song mode (**open decision 6**).
+  notes so DAW clips can choose patterns (**open decision 4**).
+- Chains / song mode (**open decision 5**).
 
 ### Phase 5 – Kits and presets
 
@@ -165,7 +169,7 @@ because adding them later would mean reworking both.
 ### Phase 6 – Beyond notes (to be confirmed)
 
 - Per-step parameter locks sending MIDI CC (e.g. decay or tune of a drum voice). VST3 MIDI CC output
-  needs a special path in JUCE, so this gets a prototype first (**open decision 2**).
+  needs a special path in JUCE, so this gets a prototype first (**open decision 1**).
 - Export a pattern as a MIDI file / drag it into the DAW.
 
 ### Phase 7 – Polish and 1.0
@@ -178,17 +182,14 @@ because adding them later would mean reworking both.
 
 To be settled before the phase that needs them; each answer moves into section 2.
 
-1. **Number of lanes** – e.g. up to 16, with the number shown adjustable? *(next to discuss)*
-2. **Parameter locks / CC per step** – in which phase, and which values can be locked?
-3. **Pattern bank size** – e.g. 4 banks × 16 patterns?
-4. **Swing in odd and compound meters** – how swing applies within 2- and 3-groups; global or per lane?
-5. **Pattern switching by MIDI** – which notes/channel, and is it quantised?
-6. **Song / chain mode** – needed inside the plug-in, or is the DAW arrangement (MIDI switching) enough?
-7. **Note length defaults** – drum hits usually only need a short fixed length; which default?
-8. **Behaviour when the host is stopped** – silent, or a preview/free-run mode for auditioning?
-9. **Editor size and layout** – fixed size or resizable; how much on one screen?
-10. **Meter changes mid-pattern** – when the host's time signature changes while a pattern plays, does
-    the pattern restart at the next bar or keep its own phase?
+1. **Parameter locks / CC per step** – in which phase, and which values can be locked?
+2. **Pattern bank size** – e.g. 4 banks × 16 patterns?
+3. **Swing in odd and compound meters** – how swing applies within 2- and 3-groups; global or per lane?
+4. **Pattern switching by MIDI** – which notes/channel, and is it quantised?
+5. **Song / chain mode** – needed inside the plug-in, or is the DAW arrangement (MIDI switching) enough?
+6. **Note length defaults** – drum hits usually only need a short fixed length; which default?
+7. **Behaviour when the host is stopped** – silent, or a preview/free-run mode for auditioning?
+8. **Editor size and layout** – fixed size or resizable; how much on one screen?
 
 ## 7. Technical notes and risks
 

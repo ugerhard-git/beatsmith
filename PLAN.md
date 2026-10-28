@@ -8,7 +8,7 @@ This document records **what** we build, **in which order**, and the **decisions
 updated whenever a decision is made or a phase is finished. Ideas that are discussed but not scheduled go
 into [docs/IDEAS.md](docs/IDEAS.md); once something is scheduled it moves here.
 
-Status: **planning done for phases 0–1** – no plug-in code yet.
+Status: **phase 0 done** (empty plug-in, build and CI; confirmed in Reaper) – phase 1 is being planned in detail.
 
 ---
 
@@ -113,7 +113,7 @@ discussed in detail, and the owner gives an explicit **go**, before work on them
   screenshots, Windows VST3 build, CodeQL for C++, release job for `v*` tags with SHA-256 checksums and
   build-provenance attestations. **Done.**
 - Result: an empty Beatsmith that loads in Reaper and Bitwig, shows a window and outputs nothing.
-  *Waiting for the owner's test in both hosts.*
+  **Done** – confirmed in Reaper (loading, MIDI pass-through, resizing). Bitwig still to be checked.
 
 ### Phase 1 – A playable sequencer (first useful version)
 

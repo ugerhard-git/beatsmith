@@ -15,7 +15,8 @@ namespace beatsmith
 
 /**
  * Beatsmith's AudioProcessor, a MIDI effect: it has no audio inputs or outputs, passes incoming MIDI through
- * and adds the notes the engine produces.
+ * and adds the notes the engine produces. Phase 1a: the engine plays a fixed test pattern
+ * (makeTimingTestPattern()).
  */
 class BeatsmithProcessor final : public juce::AudioProcessor
 {

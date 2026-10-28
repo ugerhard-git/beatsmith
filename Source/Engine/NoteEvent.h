@@ -47,6 +47,26 @@ public:
         return true;
     }
 
+    /**
+     * Sorts the events by sample position, keeping the order in which they were added for events at the same
+     * sample (so a note-off added before a note-on of the same note stays before it). An insertion sort: it
+     * allocates no memory and takes linear time for lists that are already nearly sorted, which is the norm.
+     */
+    void sortBySamplePosition() noexcept
+    {
+        for (std::size_t index = 1; index < events.size(); ++index)
+        {
+            const auto event = events[index];
+            auto insertAt = index;
+            while (insertAt > 0 && events[insertAt - 1].samplePosition > event.samplePosition)
+            {
+                events[insertAt] = events[insertAt - 1];
+                --insertAt;
+            }
+            events[insertAt] = event;
+        }
+    }
+
     /** Removes all events but keeps the reserved memory. */
     void clear() noexcept { events.clear(); }
 

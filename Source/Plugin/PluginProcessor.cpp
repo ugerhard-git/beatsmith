@@ -1,5 +1,6 @@
 #include "Plugin/PluginProcessor.h"
 
+#include "Engine/TestPattern.h"
 #include "UI/PluginEditor.h"
 
 #include <cmath>
@@ -23,9 +24,15 @@ constexpr int maximumStateSizeInBytes = 16 * 1024 * 1024;
 
 BeatsmithProcessor::BeatsmithProcessor() : AudioProcessor (BusesProperties()) // MIDI only: no audio inputs or outputs
 {
+    // Phase 1a: a fixed test pattern plays until the editor can make patterns (phase 1b).
+    engine.setPattern (makeTimingTestPattern());
 }
 
-void BeatsmithProcessor::prepareToPlay (double /*sampleRate*/, int /*maximumBlockSize*/) {}
+void BeatsmithProcessor::prepareToPlay (double /*sampleRate*/, int /*maximumBlockSize*/)
+{
+    // The host may have reset its transport: treat the next block as a jump (which also ends sounding notes).
+    engine.markDiscontinuity();
+}
 
 void BeatsmithProcessor::releaseResources() {}
 
@@ -41,14 +48,42 @@ BlockContext BeatsmithProcessor::readBlockContext (int numSamples) const
     context.sampleRate = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
     context.numSamples = std::max (0, numSamples);
 
-    if (auto* hostPlayHead = getPlayHead())
+    auto* hostPlayHead = getPlayHead();
+    if (hostPlayHead == nullptr)
+        return context;
+    const auto position = hostPlayHead->getPosition();
+    if (! position.hasValue())
+        return context;
+
+    // Every value is checked: hosts may leave values out or report nonsense. The engine handles missing ones.
+    if (const auto bpm = position->getBpm(); bpm.hasValue() && std::isfinite (*bpm) && *bpm > 0.0)
+        context.tempoBeatsPerMinute = juce::jlimit (10.0, 1000.0, *bpm);
+    context.hostIsPlaying = position->getIsPlaying();
+
+    if (const auto songPosition = position->getPpqPosition(); songPosition.hasValue() && std::isfinite (*songPosition))
     {
-        if (auto position = hostPlayHead->getPosition())
-        {
-            if (auto bpm = position->getBpm(); bpm && std::isfinite (*bpm) && *bpm > 0.0)
-                context.tempoBeatsPerMinute = juce::jlimit (10.0, 1000.0, *bpm); // guard against nonsense
-            context.hostIsPlaying = position->getIsPlaying();
-        }
+        context.hasPositionInQuarterNotes = true;
+        context.positionInQuarterNotes = *songPosition;
+    }
+    if (const auto barStart = position->getPpqPositionOfLastBarStart();
+        barStart.hasValue() && std::isfinite (*barStart))
+    {
+        context.hasLastBarStart = true;
+        context.lastBarStartInQuarterNotes = *barStart;
+    }
+    if (const auto timeSignature = position->getTimeSignature(); timeSignature.hasValue())
+    {
+        context.hasTimeSignature = true;
+        context.timeSignatureNumerator = timeSignature->numerator;
+        context.timeSignatureDenominator = timeSignature->denominator;
+    }
+    context.isLooping = position->getIsLooping();
+    if (const auto loop = position->getLoopPoints();
+        loop.hasValue() && std::isfinite (loop->ppqStart) && std::isfinite (loop->ppqEnd))
+    {
+        context.hasLoopPoints = true;
+        context.loopStartInQuarterNotes = loop->ppqStart;
+        context.loopEndInQuarterNotes = loop->ppqEnd;
     }
     return context;
 }

@@ -4,12 +4,13 @@ Beatsmith is a drum step sequencer plug-in (VST3) for Windows. It plays drum pat
 DAW and sends them as MIDI notes into its track, where a drum plug-in or a hardware drum machine turns
 them into sound. Beatsmith itself makes no sound.
 
-> **This manual is a skeleton.** The current version (phase 0) loads in your DAW but does not play
-> anything yet. Each chapter is filled in when the feature it describes is built; the phase is noted in
-> brackets.
+> **This manual is a skeleton.** The current version (phase 1a) plays a built-in test pattern so its timing
+> can be checked; you cannot edit patterns yet. Each chapter is filled in when the feature it describes is
+> built; the phase is noted in brackets.
 
 - [Installation](#installation)
 - [Where to put it in your DAW](#where-to-put-it-in-your-daw)
+- [Test version: the built-in pattern](#test-version-the-built-in-pattern)
 - [Basic ideas: lanes, steps, patterns, kits](#basic-ideas-lanes-steps-patterns-kits)
 - [The window](#the-window)
 - [Programming a pattern](#programming-a-pattern)
@@ -43,6 +44,35 @@ To drive a hardware drum machine, send the track's MIDI output to the machine's 
 
 MIDI that arrives at Beatsmith (from a keyboard or a MIDI clip on the same track) passes through unchanged,
 so you can still play the drum instrument directly. Beatsmith adds its own notes to it.
+
+## Test version: the built-in pattern
+
+*This chapter is only for the phase 1a test version and disappears when the editor arrives.*
+
+This version plays one fixed pattern whenever your DAW plays. It uses General MIDI drum notes on **MIDI
+channel 10**, so any GM-compatible drum plug-in plays it (set the plug-in to receive channel 10, or all
+channels):
+
+| Sound | GM note | What it plays |
+|-------|---------|---------------|
+| Kick | 36 (C1 in Bitwig and Cubase, C2 in Reaper) | 1st and 9th sixteenth of every bar, the first one louder (accent) |
+| Snare | 38 | 5th and 13th sixteenth |
+| Closed hi-hat | 42 | every eighth, alternating loud and soft |
+| Side stick | 37 | five even notes per 4/4 bar – a quintuplet against the beat |
+| Cowbell | 56 | every third sixteenth – three against four |
+
+The pattern is one bar long, follows your DAW's time signature and starts again at every bar line. In
+4/4 it sounds like a plain rock beat with two cross-rhythms on top. Things worth checking:
+
+- **Timing:** render the track or record the MIDI: the notes should sit exactly on the grid.
+- **Odd meters:** set the DAW to 7/8, 5/4 or 11/8 – the kick still lands on every bar line, and everything
+  after the end of the shorter bar is cut off.
+- **Loops and jumps:** loop a region (also one that is not a whole number of bars) and click around while
+  playing – the pattern always continues where it should, as if it had played from the start.
+- **Tempo changes:** change the tempo while playing – nothing stumbles or doubles.
+- **Time-signature changes:** put a change from 4/4 to 7/8 in the middle of the song – the pattern restarts
+  on the first bar of 7/8.
+- **No stuck notes:** stop, loop, jump and bypass while playing – no note keeps sounding.
 
 ## Basic ideas: lanes, steps, patterns, kits
 
@@ -111,9 +141,19 @@ saving and loading your own kits, where kit files are stored.
 
 ## Stuck notes
 
-*(Phase 1)* Beatsmith ends every note it starts, also when you stop, loop or jump in the DAW, switch
-patterns or edit lanes while playing. If a note ever hangs, please report it as a bug.
+Beatsmith ends every note it starts: at the end of its note length, before the same note plays again, and
+at once when you stop, loop or jump in the DAW or bypass the plug-in – also when a lane's note or channel
+was changed in between. If a note ever hangs, please report it as a bug.
 
 ## Troubleshooting
 
-To be written as questions come up.
+- **Nothing plays.** Beatsmith plays only while the DAW's transport runs. Check that the drum instrument
+  receives MIDI channel 10 (or all channels) and that Beatsmith sits before it (see
+  [Where to put it in your DAW](#where-to-put-it-in-your-daw)).
+- **After a time-signature change, the first bar sounds slightly late.** DAWs tell plug-ins about a new time
+  signature only from the next audio block on; Beatsmith then plays the missed notes at once, a few
+  milliseconds late. A smaller audio buffer makes this shorter.
+- **Starting playback behind a time-signature change, the pattern starts in the wrong place.** Beatsmith
+  learns where time-signature changes are while playing through them. If you start behind a change it has
+  not played through yet, it counts bars as if the current time signature had applied since the song start,
+  until playback passes the change once.

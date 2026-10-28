@@ -3,27 +3,27 @@
 This document explains how the code is organised and why. It is kept true with every change
 (see [CONTRIBUTING.md](../CONTRIBUTING.md)). API details live in the doc comments in the headers.
 
-> **Status:** phase 0. The build, CI, an empty engine and an empty plug-in exist; the sequencer itself does
-> not yet. Sections marked *(planned)* describe the design agreed in [PLAN.md](../PLAN.md) and are rewritten
-> as the code arrives. Sections without the mark describe what is in the repository today.
+> **Status:** phase 1a. The timing engine plays a built-in test pattern; the editor (phase 1b) and the lane
+> settings (phase 1c) are not built yet. Sections marked *(planned)* describe the design agreed in
+> [PLAN.md](../PLAN.md) and are rewritten as the code arrives. Sections without the mark describe what is in
+> the repository today.
 
-## Overview *(planned)*
+## Overview
 
 ```
  Host (Reaper, Bitwig …)
-   │  playhead: tempo, time signature, position,          ▲ MIDI notes out
-   │  last bar start, loop, playing                        │
-   ▼                                                       │
- Source/Plugin   BeatsmithProcessor (JUCE AudioProcessor): parameters, state,
-   │             kits, presets, MidiBuffer, Audition clock
-   │  BlockContext + current pattern snapshot
+   │  playhead: tempo, position, last bar start,           ▲ MIDI notes out
+   │  time signature, loop, playing                         │ (incoming MIDI passes through)
+   ▼                                                        │
+ Source/Plugin   BeatsmithProcessor (JUCE AudioProcessor): playhead → BlockContext,
+   │             engine output → MidiBuffer, bypass, state
+   │  BlockContext
    ▼
- Source/Engine   plain C++17, no JUCE
-                 ├─ Timeline      host position → exact musical time, meter, anchor
-                 ├─ LanePlayer    per lane: step index from time, length, rate
-                 ├─ TrigDecider   probability, trig conditions, fill (phase 3)
-                 └─ NoteScheduler note-ons/offs at sample positions, look-ahead,
-                                  sounding-note bookkeeping (no stuck notes)
+ Source/Engine   BeatsmithEngine – plain C++17, no JUCE
+                 ├─ Pattern          the data: meter, lanes, steps (validated)
+                 ├─ MusicalTimeline  song position → bars → realignment periods
+                 └─ note scheduling  steps → note-ons/offs at samples,
+                                     sounding-note bookkeeping (no stuck notes)
 ```
 
 The **engine** (`Source/Engine`) is plain C++17 without JUCE, like MIDI Forge's. It is built and tested on
@@ -38,20 +38,27 @@ set-up that lets MIDI Forge send notes in Reaper and Bitwig.
 
 | Path | Contents |
 |------|----------|
-| `Source/Engine/BlockContext.h` | `BlockContext`: block length, sample rate, transport state – what the engine knows about a block |
-| `Source/Engine/NoteEvent.h` | `NoteEvent` (one note-on/off at a sample position) and `NoteEventList` (fixed capacity, never allocates while running) |
-| `Source/Engine/BeatsmithEngine.*` | `BeatsmithEngine`: the sequencer engine. Phase 0: silent; the pattern player arrives in phase 1 |
+| `Source/Engine/BlockContext.h` | `BlockContext`: block length, sample rate, tempo and everything the host reports about its transport (each optional value with a `has…` flag) |
+| `Source/Engine/NoteEvent.h` | `NoteEvent` (one note-on/off at a sample position) and `NoteEventList` (fixed capacity, never allocates while running, stable insertion sort) |
+| `Source/Engine/Fraction.h` | `Fraction`: exact, reduced fractions for musical durations |
+| `Source/Engine/Pattern.*` | The data model – `StepRate`, `Meter` (with beat grouping), `Step`, `Lane`, `Pattern`, the stored enums, limits, default groupings and `sanitizePattern()` |
+| `Source/Engine/MusicalTimeline.*` | `MusicalTimeline`: bars from the host or the pattern's own meter, remembered host meter changes, realignment periods |
+| `Source/Engine/BeatsmithEngine.*` | `BeatsmithEngine`: finds the steps in each block, schedules note-ons and note-offs, handles transport changes |
+| `Source/Engine/TestPattern.*` | The phase 1a test pattern and the General MIDI drum note numbers it uses |
 | `Source/Plugin/PluginProcessor.*` | `BeatsmithProcessor`: the JUCE MIDI effect – playhead → `BlockContext`, engine output → `MidiBuffer`, bypass, versioned state, remembered editor size |
 | `Source/UI/Theme.h` | Colours, fonts and sizes (MIDI Forge's dark theme with Beatsmith's orange accent) |
-| `Source/UI/PluginEditor.*` | `BeatsmithEditor`: the resizable window. Phase 0: header only |
+| `Source/UI/PluginEditor.*` | `BeatsmithEditor`: the resizable window. Phase 1a: explains the test pattern |
 | `Tests/TestFramework.h` | The tiny test framework shared with MIDI Forge (`TEST_CASE`, `EXPECT`) |
-| `Tests/Engine/` | Engine tests (no JUCE) |
+| `Tests/Engine/EngineTestRig.h` | A simulated host: plays the engine block by block (tempo, sample rate, meter regions, loops with or without split blocks) and collects events with absolute sample times |
+| `Tests/Engine/PatternTests.cpp` | Durations, meters, groupings, validation of garbage patterns |
+| `Tests/Engine/TimingTests.cpp` | Rates and tuplets, odd meters, polymeters, realignment, meter changes, block-size independence |
+| `Tests/Engine/NoteSafetyTests.cpp` | Stop, bypass, jumps, loops, tempo and meter changes inside blocks, retriggers, capacity floods, the randomized no-stuck-notes stress test and a no-allocation check |
 | `Tests/Plugin/` | Tests of the JUCE layer; `--snapshot-dir` renders the editor to `editor.png` |
 | `docs/` | This document, the user manual, ideas, images |
 | `packaging/` | Files that go into the release zip (`INSTALL.txt`) |
 
-Planned additions: musical time, lanes, patterns, trig decisions and note scheduling in `Source/Engine/`;
-parameter IDs, kit and preset libraries in `Source/Plugin/`; the grid and lane controls in `Source/UI/`.
+Planned additions: trig decisions (probability, conditions) in `Source/Engine/`; parameter IDs, kit and preset
+libraries in `Source/Plugin/`; the grid and lane controls in `Source/UI/`.
 
 ## MIDI routing
 
@@ -61,44 +68,111 @@ plug-in is bypassed, input still passes through and the engine ends any note it 
 incoming MIDI will later be used by Beatsmith itself (e.g. to switch patterns) is open decision 4 in
 PLAN.md.
 
-## Musical time *(planned)*
+## The data model
 
-Odd meters, polymeters and polyrhythms are core features (PLAN.md, section 2), so time is modelled
-carefully:
+`Pattern.h` holds plain values of fixed size – no heap memory – so a pattern can be copied on the audio
+thread. A pattern has a meter source (host or its own `Meter`), a length in bars, a realignment mode, a
+meter-change behaviour and up to 16 lanes; a lane has a note, a channel (default 10), a length of 1–128
+steps, a `StepRate`, a gate, default and accent velocities, mute, solo and 128 steps; a step is on or off,
+accented or not, with a velocity and an optional gate of its own.
 
-- **Exact durations.** A lane's step duration is stored as an exact fraction of a quarter note: 1/16
-  note = 1/4 beat, 1/8 triplet = 1/3 beat, a free tuplet "5 in 4 beats" = 4/5 beat. Positions are only
-  converted to samples at the very end, so lanes never drift against each other.
-- **Computed positions.** A lane's current step is
-  `floor((musicalTime - anchor) / stepDuration) mod laneLength`. Nothing is counted per block, so loops,
-  jumps and scrubbing always land on the right step in every lane.
-- **Anchor and realignment.** The anchor is where all lanes start together. The realignment setting
-  chooses it: song start only, every pattern restart, or every N bars.
-- **Meter.** Taken from the host's time signature and bar position unless the pattern overrides it. The
-  beat grouping (e.g. 7/8 = 2+2+3) drives grid shading, accent helpers and swing. A host meter change
-  either restarts the pattern at the next bar or keeps its phase (user setting). Hosts that report no
-  bar position fall back to the pattern's own meter counted from song start.
-- **Audition.** While the host is stopped, the Audition button drives the same timeline from an internal
-  clock at the host's tempo.
+**Exact durations.** A `StepRate` is a note value plus a tuplet "N steps in the time of M notes"; its
+duration is an exact `Fraction` of a quarter note: 1/16 = 1/4, eighth triplet = 1/3, dotted eighth = 3/4,
+"5 in 4 quarters" = 4/5. Steps last between a 1/64 note and four whole notes; N and M go up to 32. Gates are
+counted in 1/64 notes (default 2 = a 1/32 note).
 
-## The processing path (audio thread) *(planned)*
+**Validation.** `sanitizePattern()` clamps every value and replaces invalid rates (straight 1/16), meters
+(4/4) and groupings (the default grouping). The engine sanitizes every pattern it receives, so data from a
+damaged project or a crafted preset cannot make it misbehave.
 
-1. `processBlock` reads the playhead into a `BlockContext` and picks up the latest pattern snapshot
-   from the editor (lock-free hand-over, designed in phase 1).
-2. The engine finds every step that starts in this block (plus a small look-ahead for notes that swing,
-   micro-timing or flams move earlier), decides whether each trig plays, and schedules note-ons and
-   note-offs at sample positions.
-3. Scheduled events are written into the `juce::MidiBuffer`.
+**Default groupings** (`makeMeterWithDefaultGrouping()`): quarter- and half-note meters count every unit;
+eighth and shorter units are grouped in threes when the numerator is a multiple of 3 (6/8 = 3+3), otherwise
+in twos with a final three (7/8 = 2+2+3, 11/8 = 2+2+2+2+3).
 
-Everything on this path is **real-time safe**: no allocation, no locks, no I/O. Buffers are reserved up
-front and queues have hard caps.
+## Musical time
+
+**Computed positions.** Every lane's step *k* starts at `anchor + k × stepDuration`, and plays step
+`k mod laneLength`. Nothing is counted per block: each block's steps are found from the song position, so
+loops, jumps and scrubbing always land on the right step in every lane. Durations are converted to floating
+point only here, and each step start is computed directly from *k*, so lanes never drift.
+
+**Realignment periods** (`MusicalTimeline::getPeriodContaining()`): the anchor is where all lanes start
+together. For *song start only* there is one period, the whole song, anchored at quarter note 0 (pre-roll
+steps before it follow the same grid). For *every pattern restart* and *every N bars*, a period is that many
+bars, counted from bar 0 – or, with *restart at change*, from the first bar of the current meter.
+
+**Bars.** With the pattern's own meter, bar *n* starts at `n × barLength`. When following the host, bars come
+from the host's time signature and the start of the current bar. VST3 hosts do not report bar numbers, so
+the timeline remembers each meter it sees during playback as a *meter segment* (start, time signature,
+number of its first bar; up to 32, then it starts over). The first segment is assumed to reach back to the
+song start. Limitation: after starting playback behind a time-signature change that has not been played
+through yet, the change's position is unknown; the timeline assumes the current meter since the song start
+until playback passes the change. Hosts that report no time signature count as 4/4; hosts that report no bar
+start get bars computed from the song start.
+
+**Tolerances.** A step belongs to a block if it starts in `[blockStart − ε, blockEnd − ε)` with the same
+ε = 10⁻⁹ quarter notes everywhere; together with continuing each block exactly where the last one ended,
+neighbouring blocks and periods split the steps exactly between them – no step is lost or doubled.
+
+## The processing path (audio thread)
+
+1. `processBlock` reads the playhead into a `BlockContext` (every value checked; tempo clamped to 10–1000
+   BPM) and calls the engine.
+2. The engine decides how this block relates to the last one:
+   - **continuing** (the position is within two samples of where the last block ended): it carries on
+     exactly from there;
+   - **drifting** (within 1/4 quarter note or two block lengths – e.g. a tempo change inside the last
+     block, since hosts report one tempo per block): it carries on from where the last block ended; steps the
+     host has already passed come late at sample 0, none is repeated;
+   - otherwise a **start or jump**: every sounding note ends at sample 0, and a step up to half a sample
+     before the new position still plays.
+3. The timeline learns the host's meter. A time-signature change is reported only from the first block
+   after it, so steps between the change and this block are played now, slightly late, instead of being lost.
+4. If the host loops and the loop end lies inside the block (some hosts do not split blocks there), the
+   block is played up to the loop end, all notes end at the wrap sample, and the rest is played from the
+   loop start.
+5. For each stretch, the engine walks through the realignment periods it touches, collects the trigs of all
+   audible lanes (solo beats mute), sorts them by time, and starts them in order – ending due notes first.
+6. Events are generated in time order; a stable insertion sort fixes rounding cases while keeping a note-off
+   before the note-on that retriggers the same note. The processor writes them into the `juce::MidiBuffer`.
+
+`prepareToPlay` marks the next block as a jump. While the transport is stopped, the engine is silent.
+
+Everything on this path is **real-time safe**: no allocation (checked by a test that counts every
+`operator new` during processing), no locks, no I/O. Lists have fixed capacities: 4096 events per block,
+2048 trigs per block, 256 sounding notes.
 
 ### No stuck notes
 
-The `NoteScheduler` remembers every note it has started (note, channel, scheduled end). When anything
-could orphan a note – transport stop, loop, jump, pattern change, a lane removed or its note or channel
-changed, bypass, release of the plug-in – it sends the matching note-offs immediately. Randomized stress
-tests check that no note is left hanging across hundreds of random edit-and-transport sequences.
+The engine remembers every note it starts (channel, note, start, end of its gate) and guarantees its
+note-off:
+
+- at the end of its gate;
+- before the same note starts again (retrigger: note-off and note-on at the same sample, in that order);
+- immediately (sample 0) when the transport stops, jumps or starts, and at the wrap sample of a loop;
+- when all notes are released (bypass) – also for notes whose lane meanwhile changed its note or channel,
+  because the note-off uses the note and channel the note was started with.
+
+If two lanes start the same note at the same moment, it is played once. If 256 notes sound, the oldest is
+ended to make room. A note-on is only added while the output list still has room for every possible
+note-off, so capacity limits can drop a note-on but never a note-off. A randomized stress test checks all of
+this across thousands of blocks of random patterns, tempo and sample-rate changes, jumps, loops (split and
+unsplit), stops, bypasses and pattern changes.
+
+### The test pattern (phase 1a)
+
+`makeTimingTestPattern()` is played until the editor exists: one bar following the host's meter, restarting
+every bar, on MIDI channel 10 – kick (1/16 steps 1 and 9, step 1 accented), snare (steps 5 and 13), closed
+hi-hat (every 1/8, loud and soft), side stick (quarter-note quintuplets: five per 4/4 bar) and cowbell (a
+3-step 1/16 lane). It makes host sync, odd meters, tuplets and polymeters audible.
+
+## Next steps *(planned)*
+
+- **Hand-over of edits (1b):** the editor changes a copy of the pattern and hands it to the audio thread
+  without locks (the engine's `setPattern()` is already real-time safe; the hand-over mechanism is designed
+  in phase 1b).
+- **Audition (1c):** while the host is stopped, an internal clock at the host's tempo drives the same engine.
+- **Pattern in the project state (1c):** stored, versioned and validated with `sanitizePattern()`.
 
 ## Stored data
 

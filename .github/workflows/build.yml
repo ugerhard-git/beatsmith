@@ -163,21 +163,26 @@ jobs:
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxi-dev libxcomposite-dev \
             libxrender-dev libgl1-mesa-dev
 
-      # JUCE is downloaded before CodeQL starts watching the build, so its sources are compiled but our
-      # own code is what the results are about (see .github/codeql/codeql-config.yml).
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBEATSMITH_BUILD_PLUGIN_TESTS=ON \
             -DFETCHCONTENT_BASE_DIR="$GITHUB_WORKSPACE/.deps"
+
+      # CodeQL analyses every file that is compiled while it watches the build, and its path filters do not
+      # apply to C++. So everything is built once *before* CodeQL starts, then only Beatsmith's own object
+      # files are deleted: the build under CodeQL compiles just our code (JUCE stays out of the results).
+      - name: Build JUCE without CodeQL
+        run: |
+          cmake --build build --target beatsmith_engine_tests beatsmith_plugin_tests Beatsmith_VST3
+          find build -path '*/CMakeFiles/*' \( -path '*/Source/*' -o -path '*/Tests/*' \) -name '*.o' -print -delete
 
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: c-cpp
           build-mode: manual
           queries: security-extended
-          config-file: ./.github/codeql/codeql-config.yml
 
-      - name: Build
+      - name: Build Beatsmith's own code under CodeQL
         run: cmake --build build --target beatsmith_engine_tests beatsmith_plugin_tests Beatsmith_VST3
 
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

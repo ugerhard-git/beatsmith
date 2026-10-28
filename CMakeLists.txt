@@ -119,12 +119,14 @@ if(BEATSMITH_BUILD_PLUGIN)
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
+    # Only the JUCE modules Beatsmith needs: the plug-in wrapper, processors and the GUI. juce_audio_utils is
+    # deliberately left out – it would add juce_audio_formats (audio file codecs) and juce_audio_devices (audio
+    # and MIDI drivers), which a MIDI plug-in never uses: less third-party code in the plug-in, a smaller binary.
     target_sources(Beatsmith PRIVATE ${BEATSMITH_PLUGIN_SOURCES})
     target_compile_definitions(Beatsmith PUBLIC ${BEATSMITH_JUCE_DEFINITIONS})
     target_link_libraries(Beatsmith
         PRIVATE
             beatsmith_engine
-            juce::juce_audio_utils
             juce::juce_audio_processors
             juce::juce_gui_basics
         PUBLIC
@@ -143,7 +145,6 @@ if(BEATSMITH_BUILD_PLUGIN)
             JucePlugin_VersionString="${PROJECT_VERSION}")
         target_link_libraries(beatsmith_plugin_tests PRIVATE
             beatsmith_engine
-            juce::juce_audio_utils
             juce::juce_audio_processors
             juce::juce_gui_basics
             juce::juce_recommended_config_flags

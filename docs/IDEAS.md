@@ -10,3 +10,9 @@ are not forgotten. Agreed designs are marked *Planned*, open ideas *Idea*. Move 
   SmartScreen warnings. Signing needs a paid certificate (or a signing
   service) and a signing secret in CI, so it is postponed until releases
   are shared more widely.
+
+## Programming
+
+- *Idea* – **Live recording into the grid.** Notes played on a keyboard (or coming from a MIDI clip) while
+  the host plays could be written into the lane with that note, quantised to the lane's steps. Until then,
+  incoming MIDI only passes through.

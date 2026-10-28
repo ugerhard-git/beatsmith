@@ -8,7 +8,7 @@ This document records **what** we build, **in which order**, and the **decisions
 updated whenever a decision is made or a phase is finished. Ideas that are discussed but not scheduled go
 into [docs/IDEAS.md](docs/IDEAS.md); once something is scheduled it moves here.
 
-Status: **planning** – no plug-in code yet.
+Status: **planning done for phases 0–1** – no plug-in code yet.
 
 ---
 
@@ -49,6 +49,9 @@ Non-goals (for now): producing sound itself, macOS, CLAP, AU, standalone app.
 | Lane realignment | **User setting**: at song start only, at every pattern restart, or every N bars |
 | Maximum length | **128 steps** per lane and per pattern |
 | Lanes | **Up to 16** per pattern. Lanes are added and removed as needed; only lanes in use are shown |
+| Note length | Short fixed gate per lane by default (1/32 note or about 50 ms – the exact value is set when building phase 1), adjustable per lane and per step |
+| Host stopped | **Silent** by default; an **Audition** button plays the pattern on its own (at the host's tempo) for programming without starting the DAW |
+| Editor | **Resizable** window; the grid scrolls and zooms horizontally |
 | Host meter changes | **User setting**: when the host's time signature changes mid-pattern, either restart the pattern at the next bar or keep its own phase |
 | Step position | Computed from the host position (anchor + step duration + lane length), never counted, so loops and jumps always land on the right step in every lane |
 
@@ -119,7 +122,7 @@ because adding them later would mean reworking both.
 - Up to 16 lanes, added and removed as needed (only lanes in use are shown), each with up to 128 steps;
   step on/off by clicking and dragging.
 - Per-step velocity, with a quick accent gesture.
-- Note length (gate) per lane, optionally per step (default: **open decision 6**).
+- Note length (gate) per lane, optionally per step; short fixed default.
 - GM default kit; per-lane name, note and channel editable; mute and solo per lane.
 - **Meter**: follows the host's time signature; per-pattern override with beat grouping (common
   groupings offered per meter, e.g. 7/8 → 2+2+3, 3+2+2, 2+3+2).
@@ -129,7 +132,9 @@ because adding them later would mean reworking both.
 - **Host meter change** setting: restart at the next bar or keep the pattern's phase.
 - Editor laid out by bars and beat groups (not fixed pages of 16); steps beyond a lane's length greyed
   out; lanes with other rates drawn at their true time width so they line up visually.
-- Host sync: follows tempo, time signature, position, loops and jumps; plays only while the host plays.
+- Host sync: follows tempo, time signature, position, loops and jumps; silent while the host is stopped.
+- Audition button: plays the pattern without the host transport, for programming.
+- Resizable editor; the grid scrolls and zooms horizontally.
 - Sample-accurate note output; no stuck notes (stop, loop, jump, edits, kit changes, bypass).
 - State saved in the DAW project.
 - Release `v0.1.0`.
@@ -187,9 +192,6 @@ To be settled before the phase that needs them; each answer moves into section 2
 3. **Swing in odd and compound meters** – how swing applies within 2- and 3-groups; global or per lane?
 4. **Pattern switching by MIDI** – which notes/channel, and is it quantised?
 5. **Song / chain mode** – needed inside the plug-in, or is the DAW arrangement (MIDI switching) enough?
-6. **Note length defaults** – drum hits usually only need a short fixed length; which default?
-7. **Behaviour when the host is stopped** – silent, or a preview/free-run mode for auditioning?
-8. **Editor size and layout** – fixed size or resizable; how much on one screen?
 
 ## 7. Technical notes and risks
 

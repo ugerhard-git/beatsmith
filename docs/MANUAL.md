@@ -4,8 +4,9 @@ Beatsmith is a drum step sequencer plug-in (VST3) for Windows. It plays drum pat
 DAW and sends them as MIDI notes into its track, where a drum plug-in or a hardware drum machine turns
 them into sound. Beatsmith itself makes no sound.
 
-> **This manual is a skeleton.** Beatsmith is still being planned and there is no release yet. Each
-> chapter is filled in when the feature it describes is built; the phase is noted in brackets.
+> **This manual is a skeleton.** The current version (phase 0) loads in your DAW but does not play
+> anything yet. Each chapter is filled in when the feature it describes is built; the phase is noted in
+> brackets.
 
 - [Installation](#installation)
 - [Where to put it in your DAW](#where-to-put-it-in-your-daw)
@@ -26,20 +27,22 @@ them into sound. Beatsmith itself makes no sound.
 
 ## Installation
 
-*(Phase 0)* Download the Windows zip from the project's **Releases** page on GitHub and copy
-`Beatsmith.vst3` to `C:\Program Files\Common Files\VST3\`. Then let your DAW rescan its plug-ins.
+Download `Beatsmith-Windows-vX.Y.Z.zip` from the project's **Releases** page on GitHub (or, for test
+builds, from the **Actions** tab → latest successful run → *Artifacts*) and copy `Beatsmith.vst3` to
+`C:\Program Files\Common Files\VST3\`. Then let your DAW rescan its plug-ins.
 
 How to check that a download is genuine is described in [SECURITY.md](../SECURITY.md#verifying-a-release).
 
 ## Where to put it in your DAW
-
-*(Phase 0)*
 
 - **Reaper:** add Beatsmith to a track's FX chain *above* the drum instrument. MIDI flows top to bottom.
 - **Bitwig Studio:** put Beatsmith in the drum instrument's **Note FX** section, or as a device before
   the instrument.
 
 To drive a hardware drum machine, send the track's MIDI output to the machine's MIDI port.
+
+MIDI that arrives at Beatsmith (from a keyboard or a MIDI clip on the same track) passes through unchanged,
+so you can still play the drum instrument directly. Beatsmith adds its own notes to it.
 
 ## Basic ideas: lanes, steps, patterns, kits
 
@@ -48,7 +51,10 @@ that plays; a pattern is all lanes together; a kit is the set of lane names, not
 
 ## The window
 
-*(Phase 1)* To be written, with a screenshot.
+![The Beatsmith window](images/editor.png)
+
+The window can be resized by dragging its bottom-right corner; Beatsmith remembers the size in your
+project. *(Phase 1: the step grid and lane controls fill the panel.)*
 
 ## Programming a pattern
 

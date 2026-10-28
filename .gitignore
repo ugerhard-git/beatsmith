@@ -7,6 +7,7 @@ CMakeUserPresets.json
 CMakeCache.txt
 CMakeFiles/
 _deps/
+.deps/
 *.vst3/
 *.vst3
 *.clap

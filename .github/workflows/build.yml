@@ -1,0 +1,227 @@
+# Builds, checks and (for v* tags) releases Beatsmith. See docs/ARCHITECTURE.md#build-and-ci.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# No permissions unless a job asks for them; only the release job may write.
+permissions: {}
+
+# Pull requests cancel their outdated runs; runs on main and tags always finish, so every commit on main
+# gets a complete build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  engine-checks:
+    name: Format, lint and engine tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install tools (hash-pinned clang-format)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ci-tools"
+          "$RUNNER_TEMP/ci-tools/bin/pip" install --require-hashes --no-deps -r .github/requirements-ci.txt
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang-tidy ninja-build
+
+      - name: Check formatting
+        run: |
+          # shellcheck disable=SC2046 # word splitting of the file list is intended
+          "$RUNNER_TEMP/ci-tools/bin/clang-format" --dry-run --Werror $(git ls-files '*.cpp' '*.h')
+
+      - name: Build engine tests (warnings are errors)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEATSMITH_BUILD_PLUGIN=OFF \
+            -DBEATSMITH_WARNINGS_AS_ERRORS=ON
+          cmake --build build
+
+      - name: Run engine tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Lint (clang-tidy)
+        run: clang-tidy -p build --quiet --warnings-as-errors='*' Source/Engine/*.cpp Tests/Engine/*.cpp
+
+      - name: Run engine tests with address and undefined-behaviour sanitizers
+        run: |
+          cmake -S . -B build-sanitizers -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBEATSMITH_BUILD_PLUGIN=OFF \
+            -DBEATSMITH_SANITIZERS=ON
+          cmake --build build-sanitizers
+          ctest --test-dir build-sanitizers --output-on-failure
+
+  plugin-tests:
+    name: Plug-in layer tests and editor screenshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install JUCE dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build xvfb libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxi-dev libxcomposite-dev \
+            libxrender-dev libgl1-mesa-dev
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEATSMITH_BUILD_PLUGIN_TESTS=ON \
+            -DBEATSMITH_BUILD_ENGINE_TESTS=OFF -DBEATSMITH_WARNINGS_AS_ERRORS=ON
+          cmake --build build --target beatsmith_plugin_tests
+
+      - name: Run tests and render the editor
+        run: |
+          binary=$(find build -type f -name beatsmith_plugin_tests -perm -u+x | head -n 1)
+          xvfb-run -a "$binary" --snapshot-dir screenshots
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: editor-screenshots
+          path: screenshots/*.png
+          if-no-files-found: error
+          retention-days: 30
+
+  build:
+    name: Plug-in (Windows)
+    needs: engine-checks
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check that a release tag matches the project version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          project_version=$(sed -n 's/^project(Beatsmith VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "v$project_version" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match project version $project_version in CMakeLists.txt"
+            exit 1
+          fi
+
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBEATSMITH_BUILD_ENGINE_TESTS=OFF
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --target Beatsmith_VST3 --parallel 4
+
+      - name: Collect the plug-in
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp -R "build/Beatsmith_artefacts/Release/VST3/Beatsmith.vst3" dist/
+          cp packaging/INSTALL.txt dist/
+
+      # GitHub delivers an artifact as a zip anyway, so the folder is uploaded as it is (zipping it here would
+      # give a zip inside a zip). The release job makes the release zip itself.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Beatsmith-Windows
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  codeql:
+    name: CodeQL (C++)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write # upload the results to the repository's code scanning alerts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install JUCE dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxi-dev libxcomposite-dev \
+            libxrender-dev libgl1-mesa-dev
+
+      # JUCE is downloaded before CodeQL starts watching the build, so its sources are compiled but our
+      # own code is what the results are about (see .github/codeql/codeql-config.yml).
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBEATSMITH_BUILD_PLUGIN_TESTS=ON \
+            -DFETCHCONTENT_BASE_DIR="$GITHUB_WORKSPACE/.deps"
+
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: c-cpp
+          build-mode: manual
+          queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Build
+        run: cmake --build build --target beatsmith_engine_tests beatsmith_plugin_tests Beatsmith_VST3
+
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:c-cpp
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [engine-checks, plugin-tests, build, codeql]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # sign the build-provenance attestation
+      attestations: write # store the attestation
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: Beatsmith-*
+          path: artifacts
+
+      # Each artifact arrives as a folder (artifacts/Beatsmith-Windows/...); zip each one for the release.
+      - name: Zip the plug-in and compute checksums
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          for folder in artifacts/*/; do
+            name=$(basename "$folder")
+            (cd "$folder" && zip -r -q "$GITHUB_WORKSPACE/$name-$TAG.zip" .)
+          done
+          sha256sum ./*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "*.zip"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" ./*.zip SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Beatsmith $TAG" \
+            --generate-notes

@@ -40,7 +40,11 @@ struct StepRate
     int tupletSpan = 1;  ///< M: … fit into the time of this many base notes.
 
     /** @return The duration of one step in quarter notes, exactly. */
-    Fraction getDurationInQuarterNotes() const { return Fraction (4 * tupletSpan, noteValue * tupletSteps); }
+    Fraction getDurationInQuarterNotes() const
+    {
+        // Multiplied in 64 bits, so even unvalidated values cannot overflow.
+        return Fraction (4 * (std::int64_t) tupletSpan, (std::int64_t) noteValue * tupletSteps);
+    }
 
     /** @return True if all fields are allowed and the step lasts between a 1/64 note and four whole notes. */
     bool isValid() const;
@@ -72,7 +76,7 @@ struct Meter
     std::array<std::uint8_t, maximumMeterNumerator> groupSizes { 1, 1, 1, 1 }; ///< Units per felt beat.
 
     /** @return The length of one bar in quarter notes, exactly (7/8 → 7/2). */
-    Fraction getBarLengthInQuarterNotes() const { return Fraction (4 * numerator, denominator); }
+    Fraction getBarLengthInQuarterNotes() const { return Fraction (4 * (std::int64_t) numerator, denominator); }
 
     /** @return True if both meters have the same time signature (the grouping is ignored). */
     bool hasSameTimeSignatureAs (const Meter& other) const noexcept

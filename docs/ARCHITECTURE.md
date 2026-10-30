@@ -195,6 +195,12 @@ The engine is a static library (`beatsmith_engine`); `CMakeLists.txt` options sw
 test programs, warnings-as-errors and sanitizers on and off. Strict warnings apply to our own code only,
 not to the JUCE sources compiled into the plug-in.
 
+The plug-in links only the JUCE modules it needs: `juce_audio_processors` (with the modules it depends on:
+audio basics, events, data structures, graphics, GUI) and `juce_gui_basics`, plus the plug-in wrapper.
+`juce_audio_utils` is deliberately not used, because it would bring in `juce_audio_formats` (audio file codecs
+such as MP3, Ogg Vorbis, FLAC, Opus) and `juce_audio_devices` (audio and MIDI drivers), which a MIDI plug-in
+never needs. Keeping them out means less third-party code to compile, scan and trust.
+
 **`.github/workflows/build.yml`** runs on every pull request, every push to `main` and every `v*` tag:
 
 1. **Format, lint and engine tests** (Linux): clang-format, engine tests with warnings as errors,

@@ -197,6 +197,9 @@ not to the JUCE sources compiled into the plug-in.
 
 **`.github/workflows/build.yml`** runs on every pull request, every push to `main` and every `v*` tag:
 
+0. **What changed** (Linux, a few seconds): decides whether the other jobs are needed. Pull requests and
+   pushes to `main` that change only documentation skip all build and test jobs (see *Documentation-only
+   changes* below).
 1. **Format, lint and engine tests** (Linux): clang-format, engine tests with warnings as errors,
    clang-tidy, engine tests under address and undefined-behaviour sanitizers.
 2. **Plug-in layer tests and editor screenshot** (Linux): builds the JUCE layer, runs its tests under a
@@ -212,8 +215,28 @@ not to the JUCE sources compiled into the plug-in.
    `Beatsmith-Windows-vX.Y.Z.zip`, writes `SHA256SUMS.txt`, creates a build-provenance attestation and
    publishes the GitHub release. Only this job has write permissions.
 
+**Documentation-only changes.** The *What changed* job compares the commit being built with its base – for a
+pull request the pull request's base commit, for a push to `main` the commit `main` pointed to before the
+push – using `git diff --no-renames --name-only`. If every changed file is a Markdown file (`*.md`
+anywhere), lies in `docs/` or is `LICENSE`, it outputs `code=false`, and jobs 1–4 are skipped. GitHub counts
+skipped jobs as passed, so the required checks stay satisfied and a documentation-only pull request can be
+merged after a few seconds instead of after the full build. In every other case the output is `code=true`
+and everything runs:
+
+- any file outside those patterns changed (source, tests, `CMakeLists.txt`, workflows, images outside
+  `docs/` …);
+- a file was moved from elsewhere into `docs/` (thanks to `--no-renames` both paths are listed);
+- nothing changed at all, or the base commit is unknown (e.g. the first push of a branch);
+- a tag (release) or a manual run (`workflow_dispatch`) – releases always build everything.
+
+The event data reaches the script only through environment variables, never written into the script
+itself, so a branch name or commit message cannot inject commands. The release job is not gated: it runs
+only for tags, which always build. If *What changed* itself fails, the jobs that depend on it are skipped –
+which would also count as passed – so *What changed* is a required check too (see *Repository rules*).
+
 **`.github/workflows/workflow-security.yml`** audits all workflows with
-[zizmor](https://github.com/zizmorcore/zizmor) on every pull request and push to `main`.
+[zizmor](https://github.com/zizmorcore/zizmor) on every pull request and push to `main`. It is not gated by
+*What changed*: it is fast and audits every change.
 
 Supply chain:
 
@@ -229,8 +252,9 @@ Supply chain:
 ## Repository rules
 
 `main` is protected by a ruleset: no deletion, no force pushes, changes only through pull requests,
-squash merges only, and required status checks: *Workflow security audit*, *Format, lint and engine
-tests*, *Plug-in layer tests and editor screenshot*, *Plug-in (Windows)* and *CodeQL (C++)*.
+squash merges only, and required status checks: *What changed*, *Workflow security audit*, *Format, lint
+and engine tests*, *Plug-in layer tests and editor screenshot*, *Plug-in (Windows)* and *CodeQL (C++)*. The
+build and test checks are skipped (and count as passed) when only documentation changed.
 
 ## Licensing
 

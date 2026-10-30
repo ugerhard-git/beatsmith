@@ -38,6 +38,7 @@ Non-goals (for now): producing sound itself, macOS, CLAP, AU, standalone app.
 | Builds | Only on GitHub Actions; the owner does not build locally |
 | License | GNU AGPLv3 (JUCE is used under its AGPLv3 option) |
 | Repository workflow | Every change through a pull request; required CI checks; squash merge; owner merges |
+| Documentation-only changes | Pull requests and pushes to `main` that change only `*.md` files, `docs/` or `LICENSE` skip the build and test jobs (skipped counts as passed); everything else, tags and manual runs build fully. The workflow audit always runs. Same approach as MIDI Forge |
 | Default drum map | **General MIDI** drum map on MIDI channel 10 (the GM drum channel). Users can change each lane's note and channel and **save their own kits** |
 | Conditional trigs | **In scope**, with a thorough, example-rich chapter in the user manual |
 | Relationship to MIDI Forge | Reuse its structure, conventions, CI and suitable code (preset library, look and feel, test framework) **as far as useful**; Beatsmith may diverge where its needs differ |

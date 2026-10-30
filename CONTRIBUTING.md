@@ -95,6 +95,10 @@ the release with SHA-256 checksums and build-provenance attestations.
 ## Pull requests
 
 - `main` is protected: every change arrives through a pull request, and CI must be green.
+- A pull request that changes only documentation (`*.md` files, `docs/`, `LICENSE`) skips the build and test
+  jobs; they show as *skipped*, which counts as passed. Anything else – including workflow and build files –
+  runs the full build. Keep documentation-only changes in their own pull requests to get this shortcut;
+  code changes still update their docs in the same pull request (rule 3 and 4).
 - One topic per pull request, with a description of what changed and why.
 - Code, docs, manual and tests change together.
 - Pull requests are squash-merged by the owner.

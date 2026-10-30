@@ -175,6 +175,8 @@ the owner can test.
 - Per-lane length and rate: common rates in a quick menu, free tuplets "N in the time of M" for
   everything else.
 - Realignment and host meter-change settings.
+- **Choke groups:** lanes can share a choke group; when a lane plays, notes still sounding from the other lanes
+  of its group are ended at that moment (e.g. a closed hi-hat cuts the open hi-hat). Details: **open decision 6**.
 - Audition button: plays the pattern without the host transport, for programming.
 - Release `v0.1.0`.
 
@@ -232,6 +234,11 @@ To be settled before the phase that needs them; each answer moves into section 2
 4. **Pattern switching by MIDI** – which notes/channel, and is it quantised? Until then all incoming MIDI
    passes through unchanged (phase 0 behaviour); decide whether switch notes are then filtered out.
 5. **Song / chain mode** – needed inside the plug-in, or is the DAW arrangement (MIDI switching) enough?
+6. **Choke groups** (phase 1c) – how many groups (e.g. 4), one group per lane or several? Does a lane choke
+   only others or also itself? Choking works by sending note-offs, so it only cuts the sound if the drum
+   instrument stops a note on note-off (many samplers have a "gate" or "note-off" mode for this; many drum
+   plug-ins and drum machines also have their own hi-hat choke, which then does the job without Beatsmith).
+   Should Beatsmith also lengthen the open hi-hat's note up to the next choke, so it rings until it is cut?
 
 ## 7. Technical notes and risks
 

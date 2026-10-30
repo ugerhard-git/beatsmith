@@ -1,14 +1,19 @@
 /**
  * @file PluginTests.cpp
- * @brief Tests of the JUCE plug-in layer: plug-in type, reading the host's transport, the test pattern, MIDI
- *        pass-through, bypass, state and editor.
+ * @brief Tests of the JUCE plug-in layer: plug-in type, reading the host's transport, MIDI pass-through,
+ *        bypass, the pattern (hand-over to the audio thread, undo, saving), playheads, and the step grid
+ *        (clicks, drags, accents, keyboard undo).
  *
  * Usage: beatsmith_plugin_tests [name filter] [--snapshot-dir folder]
- * With --snapshot-dir the editor is rendered to editor.png in that folder. CI publishes it for visual
- * review, and it is used in the manual.
+ * With --snapshot-dir the editor is rendered to editor.png (the starting pattern in 4/4) and
+ * editor-odd-meter.png (7/8 from the host, while playing) in that folder. CI publishes them for visual review,
+ * and they are used in the manual.
  */
 #include "../TestFramework.h"
 
+#include "Engine/PatternEditing.h"
+#include "Engine/TestPattern.h"
+#include "Plugin/PatternState.h"
 #include "Plugin/PluginProcessor.h"
 #include "UI/PluginEditor.h"
 
@@ -328,24 +333,505 @@ TEST_CASE ("editor: opens at the remembered size and remembers new sizes")
     }
 }
 
+//==============================================================================
+// The pattern
+
 namespace
 {
-/** Renders the editor to editor.png at twice the size, for the manual and for CI review. */
-void writeEditorSnapshot (const juce::File& directory)
+/** A pattern with one lane (snare, channel 10) and no trigs. */
+Pattern makeEmptySnarePattern()
+{
+    Pattern pattern;
+    pattern.numberOfLanes = 1;
+    pattern.lanes[0].noteNumber = GeneralMidiDrum::acousticSnare;
+    return pattern;
+}
+
+/** Processes one block with a playing host at the song start and returns the note-on numbers. */
+std::vector<int> noteOnsOfFirstBlock (BeatsmithProcessor& processor)
+{
+    FakePlayHead playHead (true);
+    processor.setPlayHead (&playHead);
+    prepare (processor);
+    auto notes = noteOnNumbersIn (processBlock (processor, {}));
+    processor.setPlayHead (nullptr);
+    return notes;
+}
+} // namespace
+
+TEST_CASE ("pattern: an edit reaches the audio thread")
 {
     BeatsmithProcessor processor;
-    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditorAndMakeActive());
-    if (editor == nullptr)
-        return;
+    auto pattern = makeEmptySnarePattern();
+    toggleStep (pattern, 0, 0);
+    processor.setPattern (pattern);
+    EXPECT ((noteOnsOfFirstBlock (processor) == std::vector<int> { GeneralMidiDrum::acousticSnare }));
 
-    const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f);
-    const auto file = directory.getChildFile ("editor.png");
+    processor.setPattern (makeEmptySnarePattern());
+    FakePlayHead playHead (true);
+    processor.setPlayHead (&playHead);
+    EXPECT (noteOnNumbersIn (processBlock (processor, {})).empty());
+    processor.setPlayHead (nullptr);
+}
+
+TEST_CASE ("pattern: undo and redo through the processor")
+{
+    BeatsmithProcessor processor;
+    const auto start = processor.getPattern();
+    EXPECT (! processor.canUndo());
+
+    auto changed = start;
+    toggleStep (changed, 1, 2);
+    processor.setPattern (changed);
+    EXPECT (processor.canUndo() && ! processor.canRedo());
+
+    EXPECT (processor.undo());
+    EXPECT (processor.getPattern() == start);
+    EXPECT (processor.canRedo());
+    EXPECT (processor.redo());
+    EXPECT (processor.getPattern() == changed);
+
+    // A drag shows changes as it goes, but records one undo step only when it ends.
+    const auto beforeDrag = processor.getPattern();
+    auto during = beforeDrag;
+    toggleStep (during, 1, 3);
+    processor.showPatternChange (during);
+    toggleStep (during, 1, 4);
+    processor.showPatternChange (during);
+    processor.commitPatternChange (beforeDrag);
+    EXPECT (processor.undo());
+    EXPECT (processor.getPattern() == beforeDrag);
+}
+
+TEST_CASE ("pattern: the version number changes with every edit, undo and commit")
+{
+    BeatsmithProcessor processor;
+    auto version = processor.getPatternVersion();
+    auto changed = processor.getPattern();
+    toggleStep (changed, 0, 1);
+    processor.setPattern (changed);
+    EXPECT (processor.getPatternVersion() != version);
+    version = processor.getPatternVersion();
+    processor.undo();
+    EXPECT (processor.getPatternVersion() != version);
+}
+
+TEST_CASE ("state: the pattern survives saving and loading exactly")
+{
+    BeatsmithProcessor original;
+    auto pattern = makeTimingTestPattern();
+    pattern.meterSource = MeterSource::ownMeter;
+    pattern.ownMeter = makeMeterWithDefaultGrouping (7, 8);
+    pattern.ownMeter.groupSizes[0] = 3; // 3+2+2
+    pattern.ownMeter.groupSizes[2] = 2;
+    pattern.lengthInBars = 3;
+    pattern.realignment = Realignment::everyNumberOfBars;
+    pattern.realignEveryBars = 5;
+    pattern.meterChangeBehaviour = MeterChangeBehaviour::keepPhase;
+    pattern.lanes[1].isMuted = true;
+    pattern.lanes[2].isSoloed = true;
+    pattern.lanes[3].gateInSixtyFourths = 7;
+    pattern.lanes[4].channel = 3;
+    pattern.lanes[4].steps[127].isOn = true;
+    pattern.lanes[4].steps[127].gateOverride = 33;
+    pattern.lanes[0].steps[5].velocity = 17; // off, but with a changed velocity: kept too
+    sanitizePattern (pattern);
+    original.setPattern (pattern);
+
+    juce::MemoryBlock state;
+    original.getStateInformation (state);
+    BeatsmithProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+    EXPECT (restored.getPattern() == pattern);
+    EXPECT (! restored.canUndo()); // loading starts a fresh history
+}
+
+TEST_CASE ("state: projects from format 1 get the starting pattern")
+{
+    BeatsmithProcessor processor;
+    processor.setPattern (makeEmptySnarePattern());
+    loadStateFromXmlText (processor, R"(<BeatsmithState formatVersion="1" editorWidth="800" editorHeight="500"/>)");
+    auto expected = makeTimingTestPattern();
+    sanitizePattern (expected);
+    EXPECT (processor.getPattern() == expected);
+}
+
+TEST_CASE ("state: a damaged or crafted pattern is clamped, never trusted")
+{
+    juce::String lanes;
+    for (int laneIndex = 0; laneIndex < 40; ++laneIndex) // more than 16 lanes
+        lanes << R"(<Lane note="999" channel="-4" length="100000" rateNoteValue="3" rateTupletSteps="0"
+                      rateTupletSpan="99999999999999999999" gate="-1" defaultVelocity="300" accentVelocity="0"
+                      muted="7" steps="5:1:1:999:9999 -3:1:0:1:0 128:1:0:1:0 7:x:y:z:w 9:1:0 3abc:1:0:50:0
+                                       2:1:0:64:0:extra 4:1:0:64:0"/>)";
+    BeatsmithProcessor processor;
+    loadStateFromXmlText (processor, R"(<BeatsmithState formatVersion="2"><Pattern meterSource="5" meterNumerator="-7"
+                                        meterDenominator="9" meterGrouping="9 9 9 junk" lengthInBars="1000000"
+                                        realignment="-1" realignEveryBars="0" meterChangeBehaviour="44">)" +
+                                         lanes + "</Pattern></BeatsmithState>");
+    const auto pattern = processor.getPattern();
+    EXPECT (pattern.numberOfLanes == maximumNumberOfLanes);
+    EXPECT (pattern.meterSource == MeterSource::followHost);
+    EXPECT (pattern.ownMeter.numerator == 4 && pattern.ownMeter.denominator == 4);
+    EXPECT (pattern.lengthInBars == maximumBarsPerPattern);
+    EXPECT (pattern.realignment == Realignment::everyPatternRestart);
+    EXPECT (pattern.realignEveryBars == 1);
+    for (int laneIndex = 0; laneIndex < pattern.numberOfLanes; ++laneIndex)
+    {
+        const auto& lane = pattern.lanes[(std::size_t) laneIndex];
+        EXPECT (lane.noteNumber == 127 && lane.channel == 1 && lane.length == maximumStepsPerLane);
+        EXPECT (lane.rate.isValid());
+        EXPECT (lane.gateInSixtyFourths == 1 && lane.defaultVelocity == 127 && lane.accentVelocity == 1);
+        EXPECT (lane.isMuted);
+        EXPECT (lane.steps[5].isOn && lane.steps[5].velocity == 127 &&
+                lane.steps[5].gateOverride == maximumGateInSixtyFourths);
+        EXPECT (! lane.steps[3].isOn); // "3abc" is not a step index
+        EXPECT (! lane.steps[2].isOn); // six fields
+        EXPECT (! lane.steps[9].isOn); // three fields
+        EXPECT (lane.steps[4].isOn && lane.steps[4].velocity == 64);
+    }
+
+    // The pattern it plays is the clamped one: processing must work normally.
+    FakePlayHead playHead (true);
+    processor.setPlayHead (&playHead);
+    prepare (processor);
+    for (int blockIndex = 0; blockIndex < 20; ++blockIndex)
+    {
+        processBlock (processor, {});
+        playHead.advanceByOneBlock();
+    }
+    processor.setPlayHead (nullptr);
+}
+
+TEST_CASE ("state: zoom and the host's last time signature are remembered and checked")
+{
+    BeatsmithProcessor original;
+    original.setEditorZoom (250.0f);
+    FakePlayHead playHead (true);
+    playHead.numerator = 11;
+    playHead.denominator = 8;
+    original.setPlayHead (&playHead);
+    prepare (original);
+    processBlock (original, {});
+    original.setPlayHead (nullptr);
+    EXPECT (original.getLastHostTimeSignatureNumerator() == 11);
+    EXPECT (original.getLastHostTimeSignatureDenominator() == 8);
+
+    juce::MemoryBlock state;
+    original.getStateInformation (state);
+    BeatsmithProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+    EXPECT (std::abs (restored.getEditorZoom() - 250.0f) < 0.001f);
+    EXPECT (restored.getLastHostTimeSignatureNumerator() == 11);
+    EXPECT (restored.getLastHostTimeSignatureDenominator() == 8);
+
+    BeatsmithProcessor checked;
+    loadStateFromXmlText (checked, R"(<BeatsmithState formatVersion="2" editorZoom="1e9" hostNumerator="0"
+                                      hostDenominator="7"/>)");
+    EXPECT (std::abs (checked.getEditorZoom() - BeatsmithProcessor::maximumZoom) < 0.001f);
+    EXPECT (checked.getLastHostTimeSignatureNumerator() == 4);
+    EXPECT (checked.getLastHostTimeSignatureDenominator() == 4);
+}
+
+TEST_CASE ("playheads: reported per lane while playing, cleared when stopped")
+{
+    BeatsmithProcessor processor;
+    FakePlayHead playHead (true);
+    processor.setPlayHead (&playHead);
+    prepare (processor);
+    for (int laneIndex = 0; laneIndex < maximumNumberOfLanes; ++laneIndex)
+        EXPECT (processor.getPlayingStepNumber (laneIndex) == BeatsmithEngine::noStepPlaying);
+
+    processBlock (processor, {}); // 512 samples: still the first 1/16 (6000 samples)
+    EXPECT (processor.getPlayingStepNumber (0) == 0);
+    EXPECT (processor.getPlayingStepNumber (5) == BeatsmithEngine::noStepPlaying); // no such lane
+
+    playHead.isPlaying = false;
+    processBlock (processor, {});
+    EXPECT (processor.getPlayingStepNumber (0) == BeatsmithEngine::noStepPlaying);
+    processor.setPlayHead (nullptr);
+}
+
+//==============================================================================
+// The grid
+
+namespace
+{
+/** Sends mouse events to a component, as a user would. */
+class SimulatedMouse
+{
+public:
+    explicit SimulatedMouse (juce::Component& componentToUse) : component (componentToUse) {}
+
+    void press (juce::Point<float> position, juce::ModifierKeys modifiers = {})
+    {
+        downPosition = position;
+        downTime = juce::Time::getCurrentTime();
+        auto mods = modifiers.withFlags (juce::ModifierKeys::leftButtonModifier);
+        if (modifiers.isPopupMenu())
+            mods = modifiers.withFlags (juce::ModifierKeys::rightButtonModifier);
+        buttonModifiers = mods;
+        component.mouseDown (makeEvent (position, mods, false));
+    }
+
+    void dragTo (juce::Point<float> position) { component.mouseDrag (makeEvent (position, buttonModifiers, true)); }
+
+    void release (juce::Point<float> position)
+    {
+        component.mouseUp (makeEvent (position, buttonModifiers, position != downPosition));
+    }
+
+    void click (juce::Point<float> position, juce::ModifierKeys modifiers = {})
+    {
+        press (position, modifiers);
+        release (position);
+    }
+
+private:
+    juce::MouseEvent makeEvent (juce::Point<float> position, juce::ModifierKeys modifiers, bool wasDragged) const
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, modifiers, 0.0f, 0.0f,
+                                 0.0f, 0.0f, 0.0f, &component, &component, juce::Time::getCurrentTime(), downPosition,
+                                 downTime, 1, wasDragged);
+    }
+
+    juce::Component& component;
+    juce::Point<float> downPosition;
+    juce::Time downTime;
+    juce::ModifierKeys buttonModifiers;
+};
+
+/** An editor on a processor with an empty one-lane pattern (snare, 1/16, 16 steps). */
+struct GridTestRig
+{
+    GridTestRig()
+    {
+        processor.setPattern (makeEmptySnarePattern());
+        editor.reset (dynamic_cast<BeatsmithEditor*> (processor.createEditorAndMakeActive()));
+        if (editor != nullptr)
+            editor->refreshFromProcessor();
+    }
+
+    PatternGrid& grid() { return editor->getGrid(); }
+    /** @return A copy of a step of lane 0 (getPattern() returns a copy, so no reference may be kept). */
+    Step step (int stepIndex) { return processor.getPattern().lanes[0].steps[(std::size_t) stepIndex]; }
+    juce::Point<float> centreOf (std::int64_t stepNumber) { return grid().getCellBounds (0, stepNumber).getCentre(); }
+
+    BeatsmithProcessor processor;
+    std::unique_ptr<BeatsmithEditor> editor;
+};
+} // namespace
+
+TEST_CASE ("grid: a click toggles a step, one undo step each")
+{
+    GridTestRig rig;
+    EXPECT (rig.editor != nullptr);
+    if (rig.editor == nullptr)
+        return;
+    SimulatedMouse mouse (rig.grid());
+
+    mouse.click (rig.centreOf (3));
+    EXPECT (rig.step (3).isOn);
+    EXPECT (rig.step (3).velocity == 100);
+    mouse.click (rig.centreOf (3));
+    EXPECT (! rig.step (3).isOn);
+
+    EXPECT (rig.processor.undo());
+    EXPECT (rig.step (3).isOn);
+    EXPECT (rig.processor.undo());
+    EXPECT (! rig.step (3).isOn);
+    EXPECT (rig.processor.canUndo()); // left: the rig's own switch to the empty pattern
+}
+
+TEST_CASE ("grid: Shift-click and right-click toggle the accent")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    SimulatedMouse mouse (rig.grid());
+    mouse.click (rig.centreOf (0), juce::ModifierKeys::shiftModifier);
+    EXPECT (rig.step (0).isOn && rig.step (0).isAccented);
+    mouse.click (rig.centreOf (0), juce::ModifierKeys::rightButtonModifier);
+    EXPECT (rig.step (0).isOn && ! rig.step (0).isAccented);
+}
+
+TEST_CASE ("grid: a sideways drag paints along the lane, as one undo step")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    SimulatedMouse mouse (rig.grid());
+    const auto before = rig.processor.getPattern();
+
+    mouse.press (rig.centreOf (2));
+    mouse.dragTo (rig.centreOf (2).translated (6.0f, 0.0f)); // decides: paint
+    mouse.dragTo (rig.centreOf (9));                         // one big jump: steps 3 … 8 are painted too
+    mouse.release (rig.centreOf (9));
+    for (int stepIndex = 0; stepIndex < 16; ++stepIndex)
+        EXPECT (rig.step (stepIndex).isOn == (stepIndex >= 2 && stepIndex <= 9));
+
+    // Painting from a step that is on erases.
+    mouse.press (rig.centreOf (5));
+    mouse.dragTo (rig.centreOf (5).translated (6.0f, 0.0f));
+    mouse.dragTo (rig.centreOf (6));
+    mouse.release (rig.centreOf (6));
+    EXPECT (! rig.step (5).isOn && ! rig.step (6).isOn && rig.step (7).isOn);
+
+    EXPECT (rig.processor.undo());
+    EXPECT (rig.processor.undo());
+    EXPECT (rig.processor.getPattern() == before);
+}
+
+TEST_CASE ("grid: a vertical drag on a trig sets its velocity; on an empty step it does nothing")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    SimulatedMouse mouse (rig.grid());
+    mouse.click (rig.centreOf (4)); // on, velocity 100
+
+    mouse.press (rig.centreOf (4));
+    mouse.dragTo (rig.centreOf (4).translated (0.0f, 6.0f));
+    mouse.dragTo (rig.centreOf (4).translated (0.0f, 80.0f)); // down: quieter
+    mouse.release (rig.centreOf (4).translated (0.0f, 80.0f));
+    EXPECT (rig.step (4).isOn);
+    EXPECT (rig.step (4).velocity == velocityAfterVerticalDrag (100, 80));
+
+    const auto before = rig.processor.getPattern();
+    mouse.press (rig.centreOf (8));
+    mouse.dragTo (rig.centreOf (8).translated (0.0f, -40.0f));
+    mouse.release (rig.centreOf (8).translated (0.0f, -40.0f));
+    EXPECT (rig.processor.getPattern() == before);
+}
+
+TEST_CASE ("grid: clicking a faint repeat edits the lane's own step")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    auto pattern = rig.processor.getPattern();
+    pattern.lanes[0].length = 5; // in a 4/4 bar: 16 cells, steps 0 … 4 repeating
+    rig.processor.setPattern (pattern);
+    rig.editor->refreshFromProcessor();
+
+    SimulatedMouse mouse (rig.grid());
+    mouse.click (rig.centreOf (12)); // the third pass of step 2
+    EXPECT (rig.step (2).isOn);
+    EXPECT (! rig.step (12).isOn);
+}
+
+TEST_CASE ("grid: shows the host's time signature and lays out its bars")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    FakePlayHead playHead (true);
+    playHead.numerator = 7;
+    playHead.denominator = 8;
+    rig.processor.setPlayHead (&playHead);
+    prepare (rig.processor);
+    processBlock (rig.processor, {});
+    rig.processor.setPlayHead (nullptr);
+    rig.editor->refreshFromProcessor();
+
+    EXPECT (rig.grid().getDisplayedMeter().numerator == 7);
+    EXPECT (rig.grid().getDisplayedMeter().denominator == 8);
+    // 16 sixteenths in a 7/8 bar of 14: all 16 cells exist (the last two after the pattern end).
+    EXPECT (! rig.grid().getCellBounds (0, 15).isEmpty());
+    EXPECT (rig.grid().getCellBounds (0, 16).isEmpty());
+}
+
+TEST_CASE ("grid: zoom is clamped and remembered")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    const float before = rig.grid().getCellBounds (0, 1).getWidth();
+    rig.grid().setZoom (rig.grid().getZoom() * 2.0f, 300.0f);
+    EXPECT (rig.grid().getCellBounds (0, 1).getWidth() > before * 1.9f);
+    EXPECT (std::abs (rig.processor.getEditorZoom() - rig.grid().getZoom()) < 0.001f);
+    rig.grid().setZoom (1.0e6f, 300.0f);
+    EXPECT (std::abs (rig.grid().getZoom() - BeatsmithProcessor::maximumZoom) < 0.001f);
+    rig.grid().setZoom (0.0f, 300.0f);
+    EXPECT (std::abs (rig.grid().getZoom() - BeatsmithProcessor::minimumZoom) < 0.001f);
+}
+
+TEST_CASE ("editor: Ctrl+Z undoes and Ctrl+Shift+Z / Ctrl+Y redo; other keys go to the host")
+{
+    GridTestRig rig;
+    if (rig.editor == nullptr)
+        return;
+    SimulatedMouse mouse (rig.grid());
+    mouse.click (rig.centreOf (1));
+    EXPECT (rig.step (1).isOn);
+
+    const auto command = juce::ModifierKeys::commandModifier;
+    EXPECT (rig.editor->keyPressed (juce::KeyPress ('z', command, 0)));
+    EXPECT (! rig.step (1).isOn);
+    EXPECT (rig.editor->keyPressed (juce::KeyPress ('z', command | juce::ModifierKeys::shiftModifier, 0)));
+    EXPECT (rig.step (1).isOn);
+    EXPECT (rig.editor->keyPressed (juce::KeyPress ('z', command, 0)));
+    EXPECT (rig.editor->keyPressed (juce::KeyPress ('y', command, 0)));
+    EXPECT (rig.step (1).isOn);
+
+    EXPECT (! rig.editor->keyPressed (juce::KeyPress (juce::KeyPress::spaceKey)));
+    EXPECT (! rig.editor->keyPressed (juce::KeyPress ('z')));
+}
+
+namespace
+{
+/** Renders an editor to a PNG file at twice the size. */
+void writeSnapshot (juce::AudioProcessorEditor& editor, const juce::File& file)
+{
+    const auto image = editor.createComponentSnapshot (editor.getLocalBounds(), true, 2.0f);
     file.deleteFile();
     {
         juce::FileOutputStream stream (file);
         juce::PNGImageFormat().writeImageToStream (image, stream);
     }
     std::printf ("Editor snapshot written to %s\n", file.getFullPathName().toRawUTF8());
+}
+
+/** Renders the editor for the manual and for CI review: the starting pattern, and 7/8 while playing. */
+void writeEditorSnapshots (const juce::File& directory)
+{
+    {
+        BeatsmithProcessor processor;
+        std::unique_ptr<BeatsmithEditor> editor (
+            dynamic_cast<BeatsmithEditor*> (processor.createEditorAndMakeActive()));
+        if (editor == nullptr)
+            return;
+        editor->refreshFromProcessor();
+        writeSnapshot (*editor, directory.getChildFile ("editor.png"));
+    }
+    {
+        // 7/8 from the host, a lane longer than the bar, a polymeter lane, and playheads in the middle of the bar.
+        BeatsmithProcessor processor;
+        auto pattern = makeTimingTestPattern();
+        pattern.lengthInBars = 2;
+        pattern.lanes[4].length = 5;
+        toggleAccent (pattern, 4, 0);
+        toggleStep (pattern, 4, 3);
+        setStepVelocity (pattern, 2, 1, 40);
+        processor.setPattern (pattern);
+
+        FakePlayHead playHead (true);
+        playHead.numerator = 7;
+        playHead.denominator = 8;
+        playHead.positionInQuarterNotes = 4.6; // bar 2, a little in
+        processor.setPlayHead (&playHead);
+        prepare (processor);
+        processBlock (processor, {});
+        processor.setPlayHead (nullptr);
+        processor.setEditorZoom (90.0f);
+
+        std::unique_ptr<BeatsmithEditor> editor (
+            dynamic_cast<BeatsmithEditor*> (processor.createEditorAndMakeActive()));
+        if (editor == nullptr)
+            return;
+        editor->refreshFromProcessor();
+        writeSnapshot (*editor, directory.getChildFile ("editor-odd-meter.png"));
+    }
 }
 } // namespace
 
@@ -369,7 +855,7 @@ int main (int argc, char** argv)
     if (snapshotDirectory != juce::File())
     {
         snapshotDirectory.createDirectory();
-        writeEditorSnapshot (snapshotDirectory);
+        writeEditorSnapshots (snapshotDirectory);
     }
     return result;
 }

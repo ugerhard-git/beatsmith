@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-project(Beatsmith VERSION 0.0.2 LANGUAGES C CXX)
+project(Beatsmith VERSION 0.0.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,6 +57,15 @@ add_library(beatsmith_engine STATIC
     Source/Engine/MusicalTimeline.cpp
     Source/Engine/TestPattern.h
     Source/Engine/TestPattern.cpp
+    Source/Engine/TripleBuffer.h
+    Source/Engine/GridGeometry.h
+    Source/Engine/GridGeometry.cpp
+    Source/Engine/PatternEditing.h
+    Source/Engine/PatternEditing.cpp
+    Source/Engine/EditHistory.h
+    Source/Engine/EditHistory.cpp
+    Source/Engine/Descriptions.h
+    Source/Engine/Descriptions.cpp
     Source/Engine/BeatsmithEngine.h
     Source/Engine/BeatsmithEngine.cpp)
 target_include_directories(beatsmith_engine PUBLIC Source)
@@ -71,8 +80,10 @@ if(BEATSMITH_BUILD_ENGINE_TESTS)
         Tests/Engine/EngineTestMain.cpp
         Tests/Engine/PatternTests.cpp
         Tests/Engine/TimingTests.cpp
-        Tests/Engine/NoteSafetyTests.cpp)
-    target_link_libraries(beatsmith_engine_tests PRIVATE beatsmith_engine beatsmith_warnings)
+        Tests/Engine/NoteSafetyTests.cpp
+        Tests/Engine/EditingTests.cpp)
+    find_package(Threads REQUIRED) # the lock-free hand-over test uses a second thread
+    target_link_libraries(beatsmith_engine_tests PRIVATE beatsmith_engine beatsmith_warnings Threads::Threads)
     add_test(NAME engine COMMAND beatsmith_engine_tests)
 endif()
 
@@ -94,7 +105,11 @@ if(BEATSMITH_BUILD_PLUGIN)
     set(BEATSMITH_PLUGIN_SOURCES
         Source/Plugin/PluginProcessor.h
         Source/Plugin/PluginProcessor.cpp
+        Source/Plugin/PatternState.h
+        Source/Plugin/PatternState.cpp
         Source/UI/Theme.h
+        Source/UI/PatternGrid.h
+        Source/UI/PatternGrid.cpp
         Source/UI/PluginEditor.h
         Source/UI/PluginEditor.cpp)
 

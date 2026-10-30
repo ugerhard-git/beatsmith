@@ -3,8 +3,8 @@
 This document explains how the code is organised and why. It is kept true with every change
 (see [CONTRIBUTING.md](../CONTRIBUTING.md)). API details live in the doc comments in the headers.
 
-> **Status:** phase 1a. The timing engine plays a built-in test pattern; the editor (phase 1b) and the lane
-> settings (phase 1c) are not built yet. Sections marked *(planned)* describe the design agreed in
+> **Status:** phase 1b. The timing engine and the step grid exist, and the pattern is saved with the project;
+> the lane settings (phase 1c) are not built yet. Sections marked *(planned)* describe the design agreed in
 > [PLAN.md](../PLAN.md) and are rewritten as the code arrives. Sections without the mark describe what is in
 > the repository today.
 
@@ -16,14 +16,17 @@ This document explains how the code is organised and why. It is kept true with e
    │  time signature, loop, playing                         │ (incoming MIDI passes through)
    ▼                                                        │
  Source/Plugin   BeatsmithProcessor (JUCE AudioProcessor): playhead → BlockContext,
-   │             engine output → MidiBuffer, bypass, state
-   │  BlockContext
+   │  ▲          engine output → MidiBuffer, bypass, state; owns the edited pattern,
+   │  │          undo history, and the lock-free hand-over to the audio thread
+   │  │ edits, undo                   ▲ playheads, host meter (atomics)
+   │  Source/UI  BeatsmithEditor + PatternGrid (message thread)
+   │  BlockContext + newest pattern
    ▼
- Source/Engine   BeatsmithEngine – plain C++17, no JUCE
+ Source/Engine   plain C++17, no JUCE
                  ├─ Pattern          the data: meter, lanes, steps (validated)
                  ├─ MusicalTimeline  song position → bars → realignment periods
-                 └─ note scheduling  steps → note-ons/offs at samples,
-                                     sounding-note bookkeeping (no stuck notes)
+                 ├─ BeatsmithEngine  steps → note-ons/offs at samples (no stuck notes)
+                 └─ editing model    GridGeometry, PatternEditing, EditHistory, TripleBuffer
 ```
 
 The **engine** (`Source/Engine`) is plain C++17 without JUCE, like MIDI Forge's. It is built and tested on
@@ -44,21 +47,29 @@ set-up that lets MIDI Forge send notes in Reaper and Bitwig.
 | `Source/Engine/Pattern.*` | The data model – `StepRate`, `Meter` (with beat grouping), `Step`, `Lane`, `Pattern`, the stored enums, limits, default groupings and `sanitizePattern()` |
 | `Source/Engine/MusicalTimeline.*` | `MusicalTimeline`: bars from the host or the pattern's own meter, remembered host meter changes, realignment periods |
 | `Source/Engine/BeatsmithEngine.*` | `BeatsmithEngine`: finds the steps in each block, schedules note-ons and note-offs, handles transport changes |
-| `Source/Engine/TestPattern.*` | The phase 1a test pattern and the General MIDI drum note numbers it uses |
-| `Source/Plugin/PluginProcessor.*` | `BeatsmithProcessor`: the JUCE MIDI effect – playhead → `BlockContext`, engine output → `MidiBuffer`, bypass, versioned state, remembered editor size |
+| `Source/Engine/TestPattern.*` | The starting pattern of new instances (`makeTimingTestPattern()`) and the General MIDI drum note numbers it uses |
+| `Source/Engine/TripleBuffer.h` | `TripleBuffer<T>`: lock-free, wait-free hand-over of a value from one writer thread to one reader thread |
+| `Source/Engine/GridGeometry.*` | Where the grid draws every step (in quarter notes): displayed meter, pattern and grid length, cells of a lane (own steps, repeats, after the pattern end), hit testing, bar and beat-group lines |
+| `Source/Engine/PatternEditing.*` | The grid's edits (toggle, paint, velocity, accent) and the rules telling clicks, paint drags and velocity drags apart |
+| `Source/Engine/EditHistory.*` | `EditHistory`: undo/redo of complete pattern versions, capped at 100 |
+| `Source/Engine/Descriptions.*` | Texts: General MIDI drum names, step rates ("1/8T", "5:4 1/4"), meters ("7/8 (2+2+3)") |
+| `Source/Plugin/PluginProcessor.*` | `BeatsmithProcessor`: the JUCE MIDI effect – playhead → `BlockContext`, engine output → `MidiBuffer`, bypass; the edited pattern, undo and the hand-over to the audio thread; playheads and the host's time signature for the editor; versioned state |
+| `Source/Plugin/PatternState.*` | The pattern in the project state: writing it as XML and reading it back with every value checked |
 | `Source/UI/Theme.h` | Colours, fonts and sizes (MIDI Forge's dark theme with Beatsmith's orange accent) |
-| `Source/UI/PluginEditor.*` | `BeatsmithEditor`: the resizable window. Phase 1a: explains the test pattern |
+| `Source/UI/PatternGrid.*` | `PatternGrid`: lane names, ruler, the step grid, playheads, mouse gestures, scrolling and zoom |
+| `Source/UI/PluginEditor.*` | `BeatsmithEditor`: the resizable window with header (zoom, undo/redo), the grid, a 30 Hz refresh timer and the undo/redo keys |
 | `Tests/TestFramework.h` | The tiny test framework shared with MIDI Forge (`TEST_CASE`, `EXPECT`) |
 | `Tests/Engine/EngineTestRig.h` | A simulated host: plays the engine block by block (tempo, sample rate, meter regions, loops with or without split blocks) and collects events with absolute sample times |
 | `Tests/Engine/PatternTests.cpp` | Durations, meters, groupings, validation of garbage patterns |
 | `Tests/Engine/TimingTests.cpp` | Rates and tuplets, odd meters, polymeters, realignment, meter changes, block-size independence |
 | `Tests/Engine/NoteSafetyTests.cpp` | Stop, bypass, jumps, loops, tempo and meter changes inside blocks, retriggers, capacity floods, the randomized no-stuck-notes stress test and a no-allocation check |
-| `Tests/Plugin/` | Tests of the JUCE layer; `--snapshot-dir` renders the editor to `editor.png` |
+| `Tests/Engine/EditingTests.cpp` | Grid geometry, step edits, drag decisions, undo/redo, the triple buffer (also with a second thread), texts, playhead reporting |
+| `Tests/Plugin/` | Tests of the JUCE layer, including simulated clicks and drags on the grid; `--snapshot-dir` renders `editor.png` and `editor-odd-meter.png` |
 | `docs/` | This document, the user manual, ideas, images |
 | `packaging/` | Files that go into the release zip (`INSTALL.txt`) |
 
 Planned additions: trig decisions (probability, conditions) in `Source/Engine/`; parameter IDs, kit and preset
-libraries in `Source/Plugin/`; the grid and lane controls in `Source/UI/`.
+libraries in `Source/Plugin/`; lane controls in `Source/UI/`.
 
 ## MIDI routing
 
@@ -116,8 +127,10 @@ neighbouring blocks and periods split the steps exactly between them – no step
 
 ## The processing path (audio thread)
 
-1. `processBlock` reads the playhead into a `BlockContext` (every value checked; tempo clamped to 10–1000
-   BPM) and calls the engine.
+1. `processBlock` takes the newest pattern from the editor, if there is one (`TripleBuffer::takeNewestValue()`,
+   lock-free; the engine copies and validates it), reads the playhead into a `BlockContext` (every value
+   checked; tempo clamped to 10–1000 BPM) and calls the engine. Afterwards it publishes each lane's playing
+   step and the host's time signature in atomics for the editor.
 2. The engine decides how this block relates to the last one:
    - **continuing** (the position is within two samples of where the last block ended): it carries on
      exactly from there;
@@ -159,29 +172,75 @@ note-off, so capacity limits can drop a note-on but never a note-off. A randomiz
 this across thousands of blocks of random patterns, tempo and sample-rate changes, jumps, loops (split and
 unsplit), stops, bypasses and pattern changes.
 
-### The test pattern (phase 1a)
+### The starting pattern
 
-`makeTimingTestPattern()` is played until the editor exists: one bar following the host's meter, restarting
-every bar, on MIDI channel 10 – kick (1/16 steps 1 and 9, step 1 accented), snare (steps 5 and 13), closed
-hi-hat (every 1/8, loud and soft), side stick (quarter-note quintuplets: five per 4/4 bar) and cowbell (a
-3-step 1/16 lane). It makes host sync, odd meters, tuplets and polymeters audible.
+`makeTimingTestPattern()` is the pattern of every new instance (and of projects saved before format 2): one bar
+following the host's meter, restarting every bar, on MIDI channel 10 – kick (1/16 steps 1 and 9, step 1
+accented), snare (steps 5 and 13), closed hi-hat (every 1/8, loud and soft), side stick (quarter-note
+quintuplets: five per 4/4 bar) and cowbell (a 3-step 1/16 lane). It was the phase 1a timing test and gives the
+editor something to edit until lanes can be added (phase 1c).
+
+## The editor
+
+**Threads.** The editor runs on the message thread, the engine on the audio thread. The processor keeps the
+*edited pattern* (what the editor shows), the undo history and the saved state behind a mutex the audio
+thread never takes. Every change is copied into a `TripleBuffer<Pattern>` (three copies of about 13 kB); the
+audio thread takes the newest copy at the start of a block without waiting. In the other direction, the audio
+thread writes each lane's playing step and the host's last time signature into atomics.
+
+**Refreshing.** The processor counts changes in `getPatternVersion()` – edits, undo/redo, committed gestures,
+loaded state. The editor's 30 Hz timer compares it (and the host's time signature) and redraws only when it
+changed; otherwise it only moves the playheads.
+
+**Layout** (`PatternGrid`): one time axis for all lanes, `x = gridStart + positionInQuarterNotes × zoom`
+(zoom 12–600 pixels per quarter note, default 120, saved). `GridGeometry` supplies the cells: a lane's own
+steps (all of them, also beyond the pattern end), then faint repeats up to the pattern end; at most 4096 cells
+per lane. Only visible cells are drawn. The grid starts at a realignment point, so for *every pattern restart*
+it shows exactly one pattern cycle. A lane's playhead is the step number the engine reports, counted from the
+period start; if that lies beyond the drawn cells (e.g. *song start only*), the lane's own copy of the step is
+marked.
+
+**Displayed meter.** The pattern's own meter, or when following the host the host's last time signature with
+its default grouping (saved in the state; 4/4 before any).
+
+**Gestures.** Mouse down remembers the pattern before the gesture and works on a copy. The first movement of
+`dragDecisionDistance` (4) pixels decides: sideways paints (every cell between the last and the current mouse
+position, so fast drags skip nothing), vertical on a trig sets its velocity (200 pixels for the full range),
+vertical on an empty step does nothing; releasing without a decision is a click (toggle). Shift-click or
+right-click toggles the accent at once. During a drag every change goes to the audio thread
+(`showPatternChange()`); mouse up records one undo step (`commitPatternChange()`) and tells the host the
+project changed (`updateHostDisplay()` with a non-parameter state change), so it offers to save.
+
+**Keys.** The grid takes keyboard focus when clicked. Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y
+redo; every other key is returned unhandled, so the host keeps its shortcuts (e.g. the space bar). Whether
+a host passes keys to a plug-in at all is up to the host, so Undo and Redo are also buttons.
 
 ## Next steps *(planned)*
 
-- **Hand-over of edits (1b):** the editor changes a copy of the pattern and hands it to the audio thread
-  without locks (the engine's `setPattern()` is already real-time safe; the hand-over mechanism is designed
-  in phase 1b).
 - **Audition (1c):** while the host is stopped, an internal clock at the host's tempo drives the same engine.
-- **Pattern in the project state (1c):** stored, versioned and validated with `sanitizePattern()`.
+- **Lane editing (1c):** adding and removing lanes, their note, channel, rate, length, gate, velocities, mute
+  and solo; mute becomes a host parameter.
 
 ## Stored data
 
 The project state is XML with the root element `BeatsmithState` and an integer `formatVersion` (currently
-1, `BeatsmithProcessor::currentStateFormatVersion`). Version 1 holds only the editor size
-(`editorWidth`, `editorHeight`). Loading:
+2, `BeatsmithProcessor::currentStateFormatVersion`):
+
+- format 1: the editor size (`editorWidth`, `editorHeight`);
+- format 2 adds the grid zoom (`editorZoom`), the host's last time signature (`hostNumerator`,
+  `hostDenominator`) and the pattern as a `Pattern` child element. Its format is documented in
+  `Source/Plugin/PatternState.h`: pattern settings as attributes, one `Lane` element per lane, and per lane a
+  `steps` attribute listing only the steps that differ from an untouched step, as
+  `index:on:accent:velocity:gate`.
+
+Loading:
 
 - ignores data that is empty, larger than 16 MB, not XML, has another root element or no valid version;
-- clamps every value to its allowed range;
+- clamps every value to its allowed range; numbers too long for an int are limited before they are used;
+  at most 16 lanes and 128 steps per lane are read, malformed step entries are skipped, and the pattern is
+  passed through `sanitizePattern()`;
+- gives format-1 projects the starting pattern;
+- clears the undo history (undo must not step back into another project);
 - reads a *newer* format as far as it understands it and ignores unknown properties and children.
 
 Plug-in layer tests cover each of these cases. Kits and presets (phases 1 and 5) follow the same rules; see

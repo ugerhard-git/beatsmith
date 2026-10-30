@@ -4,13 +4,13 @@ Beatsmith is a drum step sequencer plug-in (VST3) for Windows. It plays drum pat
 DAW and sends them as MIDI notes into its track, where a drum plug-in or a hardware drum machine turns
 them into sound. Beatsmith itself makes no sound.
 
-> **This manual is a skeleton.** The current version (phase 1a) plays a built-in test pattern so its timing
-> can be checked; you cannot edit patterns yet. Each chapter is filled in when the feature it describes is
-> built; the phase is noted in brackets.
+> **This manual is a work in progress.** The current version (phase 1b) lets you edit the steps of the
+> starting pattern in the step grid; adding lanes and changing their sound, rate and length come in phase 1c.
+> Each chapter is filled in when the feature it describes is built; the phase is noted in brackets.
 
 - [Installation](#installation)
 - [Where to put it in your DAW](#where-to-put-it-in-your-daw)
-- [Test version: the built-in pattern](#test-version-the-built-in-pattern)
+- [The starting pattern](#the-starting-pattern)
 - [Basic ideas: lanes, steps, patterns, kits](#basic-ideas-lanes-steps-patterns-kits)
 - [The window](#the-window)
 - [Programming a pattern](#programming-a-pattern)
@@ -45,55 +45,102 @@ To drive a hardware drum machine, send the track's MIDI output to the machine's 
 MIDI that arrives at Beatsmith (from a keyboard or a MIDI clip on the same track) passes through unchanged,
 so you can still play the drum instrument directly. Beatsmith adds its own notes to it.
 
-## Test version: the built-in pattern
+## The starting pattern
 
-*This chapter is only for the phase 1a test version and disappears when the editor arrives.*
+Every new Beatsmith starts with the same five lanes, so there is something to play and edit until lanes can
+be added and changed (phase 1c). They use General MIDI drum notes on **MIDI channel 10**, so any
+GM-compatible drum plug-in plays them (set the plug-in to receive channel 10, or all channels):
 
-This version plays one fixed pattern whenever your DAW plays. It uses General MIDI drum notes on **MIDI
-channel 10**, so any GM-compatible drum plug-in plays it (set the plug-in to receive channel 10, or all
-channels):
+| Lane | GM note | Rate and length | What it plays at first |
+|------|---------|-----------------|------------------------|
+| Bass Drum | 36 (C1 in Bitwig and Cubase, C2 in Reaper) | 1/16, 16 steps | 1st and 9th sixteenth, the first one accented |
+| Acoustic Snare | 38 | 1/16, 16 steps | 5th and 13th sixteenth |
+| Closed Hi-Hat | 42 | 1/8, 8 steps | every eighth, alternating loud and soft |
+| Side Stick | 37 | 5:4 1/4, 5 steps | five even notes per 4/4 bar – a quintuplet against the beat |
+| Cowbell | 56 | 1/16, 3 steps | the first of every three sixteenths – three against four |
 
-| Sound | GM note | What it plays |
-|-------|---------|---------------|
-| Kick | 36 (C1 in Bitwig and Cubase, C2 in Reaper) | 1st and 9th sixteenth of every bar, the first one louder (accent) |
-| Snare | 38 | 5th and 13th sixteenth |
-| Closed hi-hat | 42 | every eighth, alternating loud and soft |
-| Side stick | 37 | five even notes per 4/4 bar – a quintuplet against the beat |
-| Cowbell | 56 | every third sixteenth – three against four |
-
-The pattern is one bar long, follows your DAW's time signature and starts again at every bar line. In
-4/4 it sounds like a plain rock beat with two cross-rhythms on top. Things worth checking:
-
-- **Timing:** render the track or record the MIDI: the notes should sit exactly on the grid.
-- **Odd meters:** set the DAW to 7/8, 5/4 or 11/8 – the kick still lands on every bar line, and everything
-  after the end of the shorter bar is cut off.
-- **Loops and jumps:** loop a region (also one that is not a whole number of bars) and click around while
-  playing – the pattern always continues where it should, as if it had played from the start.
-- **Tempo changes:** change the tempo while playing – nothing stumbles or doubles.
-- **Time-signature changes:** put a change from 4/4 to 7/8 in the middle of the song – the pattern restarts
-  on the first bar of 7/8.
-- **No stuck notes:** stop, loop, jump and bypass while playing – no note keeps sounding.
+The pattern is one bar long, follows your DAW's time signature and starts again at every bar line. Edit it
+as you like; your changes are saved with the project.
 
 ## Basic ideas: lanes, steps, patterns, kits
 
-*(Phase 1)* To be written: a lane is one drum sound; a step is one cell in a lane, a trig is a step
-that plays; a pattern is all lanes together; a kit is the set of lane names, notes and channels.
+- A **lane** is one drum sound: it plays one MIDI note on one MIDI channel. Each lane has its own row of
+  **steps**, its own **rate** (how long one step lasts: 1/16, an eighth-note triplet, five in the time of
+  four quarters …) and its own **length** (how many steps before it starts over, 1 to 128).
+- A step that plays is a **trig**. A trig has a velocity; an **accented** trig plays at the lane's accent
+  velocity (127 by default) instead.
+- The **pattern** is all lanes together, with a length in bars. When the pattern starts again, all lanes start
+  again from their first step – so a lane shorter than the pattern repeats inside it, and steps of a lane
+  longer than the pattern never come round. *(Phase 1c: other ways for lanes to realign.)*
+- A **kit** is the set of lane names, notes and channels for one drum instrument. *(Phase 5: saving your own
+  kits.)*
 
 ## The window
 
 ![The Beatsmith window](images/editor.png)
 
-The window can be resized by dragging its bottom-right corner; Beatsmith remembers the size in your
-project. *(Phase 1: the step grid and lane controls fill the panel.)*
+- **Header:** **−** and **+** zoom the grid out and in; **Undo** and **Redo** step through your changes.
+- **Lane names** (left): the drum sound of each lane, and below it the lane's rate, length and MIDI channel.
+- **Ruler** (top): the bar numbers, and in the corner the time signature the grid shows, with its beat grouping –
+  e.g. *7/8 (2+2+3)*.
+- **Step grid:** every lane's steps on one time axis. A step's width is its real length, so lanes with
+  different rates line up the way they sound: in the picture, the five side-stick steps fill the same bar as
+  sixteen kick steps. Strong lines are bar lines; fainter lines mark the beat groups.
+
+In the grid:
+
+- An empty step is dark; a trig is filled from the bottom, the higher the louder. An accented trig is full,
+  brighter and has a white top edge.
+- A lane shorter than the pattern repeats: its own steps are bright, the **repeats** faint. You can edit
+  either – a repeat *is* the same step.
+- Steps after the end of the pattern never play; that part of the grid is darker and its steps greyed out.
+- While the DAW plays, a white frame on every lane shows the step playing at that moment.
+
+Scroll with the mouse wheel (lanes) and Shift + mouse wheel (time), or with the scroll bars. Ctrl + mouse
+wheel zooms around the mouse position. Resize the window by dragging its bottom-right corner. Beatsmith
+remembers the window size and zoom in your project.
 
 ## Programming a pattern
 
-*(Phase 1)* To be written: adding and removing lanes (up to 16), setting trigs, velocity and accents,
-note length, mute and solo, the Audition button.
+| To … | Do this |
+|------|---------|
+| set or clear a trig | click the step |
+| set or clear many steps | press on a step and drag sideways along the lane. Starting on an empty step sets every step you drag over; starting on a trig clears them |
+| make a trig louder or softer | press on the trig and drag up (louder) or down (softer). The fill shows the velocity as you drag. This also removes an accent, so you hear the new velocity |
+| accent a step | Shift-click or right-click it. An empty step becomes an accented trig; clicking an accented trig again removes the accent |
+| undo or redo | **Undo** / **Redo**, or Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y) |
+
+The first few pixels of mouse movement decide what a drag does: mostly sideways paints, mostly up and down
+changes the velocity (on an empty step, an up-and-down drag does nothing). Each click or drag is one undo
+step. Changes play at once, also while the DAW is playing.
+
+New trigs get the lane's default velocity (100). Notes are a 1/32 note long by default.
+
+Beatsmith keeps the last 100 changes for undo, until the project is closed or reloaded. Your pattern is saved
+with the DAW project.
+
+*(Phase 1c: adding and removing lanes, choosing their note, channel, rate, length and note length, mute and
+solo, and the Audition button for programming while the DAW is stopped.)*
 
 ## Meters, polymeters and polyrhythms
 
-*(Phase 1)* To be written, with examples for:
+![The grid in 7/8 while playing](images/editor-odd-meter.png)
+
+The grid always shows the bars the pattern plays in. Here the DAW is set to 7/8 and the pattern is two bars
+long:
+
+- The ruler says *7/8 (2+2+3)*: each bar has seven eighths, felt as two, two and three. The faint lines inside
+  each bar mark those groups.
+- The kick and snare lanes have 16 steps, but a bar of 7/8 holds only 14 sixteenths: the lanes run on across
+  the bar line and start over after their 16 steps (the faint repeats in bar 2). At the end of the two-bar
+  pattern – after 28 sixteenths – all lanes start again together.
+- The cowbell lane has 5 steps: its repeats show how it drifts against the bar (a polymeter).
+- The side stick plays five even steps per four quarter notes, whatever the meter (a polyrhythm).
+
+While the DAW is stopped, the grid shows the last time signature the DAW reported (saved with the project;
+4/4 before Beatsmith has ever played).
+
+*(Phase 1c)* To be written, with examples for:
 
 - playing in the DAW's time signature, and overriding it per pattern;
 - beat groupings (e.g. 7/8 as 2+2+3 or 3+2+2) and what they change;
@@ -146,6 +193,11 @@ at once when you stop, loop or jump in the DAW or bypass the plug-in – also wh
 was changed in between. If a note ever hangs, please report it as a bug.
 
 ## Troubleshooting
+
+- **Ctrl+Z does not undo in Beatsmith.** Many DAWs keep keyboard shortcuts for themselves. Use the **Undo**
+  and **Redo** buttons, or let the DAW pass keys to the plug-in (in Reaper: the FX window's option to send
+  all keyboard input to the plug-in). Keys Beatsmith does not use, such as the space bar, always go back to the
+  DAW.
 
 - **Nothing plays.** Beatsmith plays only while the DAW's transport runs. Check that the drum instrument
   receives MIDI channel 10 (or all channels) and that Beatsmith sits before it (see

@@ -170,4 +170,28 @@ struct Pattern
  */
 void sanitizePattern (Pattern& pattern);
 
+//==============================================================================
+// Comparisons: true if every stored value is the same (used by undo and tests).
+
+bool operator== (const Meter& first, const Meter& second) noexcept;
+bool operator== (const Step& first, const Step& second) noexcept;
+bool operator== (const Lane& first, const Lane& second) noexcept;
+bool operator== (const Pattern& first, const Pattern& second) noexcept;
+inline bool operator!= (const Meter& first, const Meter& second) noexcept
+{
+    return ! (first == second);
+}
+inline bool operator!= (const Step& first, const Step& second) noexcept
+{
+    return ! (first == second);
+}
+inline bool operator!= (const Lane& first, const Lane& second) noexcept
+{
+    return ! (first == second);
+}
+inline bool operator!= (const Pattern& first, const Pattern& second) noexcept
+{
+    return ! (first == second);
+}
+
 } // namespace beatsmith

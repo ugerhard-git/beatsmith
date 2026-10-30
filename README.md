@@ -3,7 +3,7 @@
 A drum step sequencer plugin that sends MIDI to drum machines from your
 DAW track. Companion to [MIDI Forge](https://github.com/ugerhard-git/midi-forge).
 
-**Status:** phase 0 – the plug-in loads but does not play anything yet; see [PLAN.md](PLAN.md).
+**Status:** in development (phase 1b: step grid editor) – not ready for use yet; see [PLAN.md](PLAN.md).
 
 - Format: VST3 (Windows)
 - Built exclusively by GitHub Actions

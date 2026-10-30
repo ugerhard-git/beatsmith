@@ -8,7 +8,7 @@ This document records **what** we build, **in which order**, and the **decisions
 updated whenever a decision is made or a phase is finished. Ideas that are discussed but not scheduled go
 into [docs/IDEAS.md](docs/IDEAS.md); once something is scheduled it moves here.
 
-Status: **phase 0 and 1a done** (timing engine confirmed in Reaper); **phase 1b** (grid editor) is being planned.
+Status: **phase 0 and 1a done**; **phase 1b** (grid editor) is built and ready for testing.
 
 ---
 
@@ -55,6 +55,11 @@ Non-goals (for now): producing sound itself, macOS, CLAP, AU, standalone app.
 | Step editing | Click toggles a trig at the lane's default velocity; drag up/down on a step sets its velocity (the fill height shows it); Shift-click or right-click toggles an **accent**, which plays at the lane's accent velocity |
 | Host automation (phase 1) | **Mute per lane** only. Pattern data is saved with the project but not automatable (step data would mean thousands of host parameters). The Fill button joins in phase 3 |
 | Incoming MIDI | Passes through unchanged. Live recording into the grid is an idea for later ([docs/IDEAS.md](docs/IDEAS.md)) |
+| Drag gestures | The first mouse movement decides: mostly sideways paints steps on or off along the lane (the first step's new state is painted); mostly up/down on a set step changes its velocity. A click without dragging toggles the step |
+| Lanes shorter or longer than the pattern | A lane's own steps are drawn at full brightness, its repeats faintly up to the pattern end; steps after the pattern end are greyed out. Every copy is editable (they are the same steps) |
+| Meter shown in the grid | The pattern's own meter, or – when following the host – the last time signature the host reported (saved with the project); 4/4 before Beatsmith has ever played |
+| Pattern saving | Moved forward from 1c into 1b: the pattern is saved in the DAW project from 1b on. The editor starts from the test pattern |
+| Undo/redo | Basic undo/redo of pattern edits in 1b (buttons, and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y where the DAW passes keys to the plug-in); one drag gesture is one undo step |
 | Host stopped | **Silent** by default; an **Audition** button plays the pattern on its own (at the host's tempo) for programming without starting the DAW |
 | Editor | **Resizable** window; the grid scrolls and zooms horizontally |
 | Host meter changes | **User setting**: when the host's time signature changes mid-pattern, either restart the pattern at the next bar or keep its own phase |
@@ -151,9 +156,14 @@ the owner can test.
 
 - Grid laid out by bars and beat groups (not fixed pages of 16); steps beyond a lane's length greyed out;
   lanes with other rates drawn at their true time width so they line up visually; playhead per lane.
-- Step editing as decided (click, drag for velocity, Shift-click/right-click for accent).
+- Step editing as decided (click, drag to paint or set velocity, Shift-click/right-click for accent).
 - Horizontal scrolling and zooming.
 - Lock-free hand-over of edits from the editor to the audio thread.
+- Undo/redo; the pattern saved in the DAW project (versioned, validated) – moved here from 1c.
+- **Built** (version 0.0.3) – waiting for the owner's test in Reaper. Details decided along the way: velocity
+  drags take 200 pixels for the full range and remove an accent; zoom 12–600 pixels per quarter note (default
+  120, saved); undo keeps 100 changes and is cleared when a project is loaded; the lane names show the General
+  MIDI drum name until lanes get their own names (1c).
 
 **1c – Lanes and settings**
 
@@ -166,7 +176,6 @@ the owner can test.
   everything else.
 - Realignment and host meter-change settings.
 - Audition button: plays the pattern without the host transport, for programming.
-- Pattern saved in the DAW project (versioned, validated).
 - Release `v0.1.0`.
 
 ### Phase 2 – Feel

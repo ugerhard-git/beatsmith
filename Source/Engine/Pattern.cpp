@@ -135,4 +135,37 @@ void sanitizePattern (Pattern& pattern)
         sanitizeLane (lane);
 }
 
+bool operator== (const Meter& first, const Meter& second) noexcept
+{
+    if (first.numerator != second.numerator || first.denominator != second.denominator ||
+        first.numberOfGroups != second.numberOfGroups)
+        return false;
+    const auto numberOfGroups = (std::size_t) std::clamp (first.numberOfGroups, 0, maximumMeterNumerator);
+    return std::equal (first.groupSizes.begin(), first.groupSizes.begin() + (std::ptrdiff_t) numberOfGroups,
+                       second.groupSizes.begin());
+}
+
+bool operator== (const Step& first, const Step& second) noexcept
+{
+    return first.isOn == second.isOn && first.isAccented == second.isAccented && first.velocity == second.velocity &&
+           first.gateOverride == second.gateOverride;
+}
+
+bool operator== (const Lane& first, const Lane& second) noexcept
+{
+    return first.noteNumber == second.noteNumber && first.channel == second.channel && first.length == second.length &&
+           first.rate == second.rate && first.gateInSixtyFourths == second.gateInSixtyFourths &&
+           first.defaultVelocity == second.defaultVelocity && first.accentVelocity == second.accentVelocity &&
+           first.isMuted == second.isMuted && first.isSoloed == second.isSoloed && first.steps == second.steps;
+}
+
+bool operator== (const Pattern& first, const Pattern& second) noexcept
+{
+    return first.meterSource == second.meterSource && first.ownMeter == second.ownMeter &&
+           first.lengthInBars == second.lengthInBars && first.realignment == second.realignment &&
+           first.realignEveryBars == second.realignEveryBars &&
+           first.meterChangeBehaviour == second.meterChangeBehaviour && first.numberOfLanes == second.numberOfLanes &&
+           first.lanes == second.lanes;
+}
+
 } // namespace beatsmith

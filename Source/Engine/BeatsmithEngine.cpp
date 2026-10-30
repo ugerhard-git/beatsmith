@@ -43,6 +43,7 @@ void BeatsmithEngine::releaseAllNotes (NoteEventList& output) noexcept
     output.clear();
     releaseAllNotesAt (0, output);
     isContinuingPreviousBlock = false;
+    playingStepNumbers.fill (noStepPlaying);
 }
 
 void BeatsmithEngine::process (const BlockContext& context, NoteEventList& output) noexcept
@@ -60,6 +61,7 @@ void BeatsmithEngine::process (const BlockContext& context, NoteEventList& outpu
         // Stopped (or no usable position): end everything and wait.
         releaseAllNotesAt (0, output);
         isContinuingPreviousBlock = false;
+        playingStepNumbers.fill (noStepPlaying);
         return;
     }
     if (context.numSamples <= 0)
@@ -134,6 +136,7 @@ void BeatsmithEngine::process (const BlockContext& context, NoteEventList& outpu
         expectedNextBlockStart = std::max (blockEnd, firstRangeStart);
     }
     isContinuingPreviousBlock = true;
+    updatePlayingStepNumbers (expectedNextBlockStart - tolerance);
 
     // Events are generated in musical order; the sort only fixes rare rounding cases and keeps that order for
     // events at the same sample (a note-off before the note-on that retriggers the same note).
@@ -291,6 +294,22 @@ void BeatsmithEngine::releaseAllNotesAt (int sampleOffset, NoteEventList& output
     for (std::size_t index = 0; index < numberOfSoundingNotes; ++index)
         output.add ({ sampleOffset, soundingNotes[index].channel, soundingNotes[index].noteNumber, 0, false });
     numberOfSoundingNotes = 0;
+}
+
+void BeatsmithEngine::updatePlayingStepNumbers (double positionInQuarterNotes) noexcept
+{
+    const int numberOfLanes = std::clamp (pattern.numberOfLanes, 0, maximumNumberOfLanes);
+    const auto period = timeline.getPeriodContaining (positionInQuarterNotes, pattern);
+    for (int laneIndex = 0; laneIndex < maximumNumberOfLanes; ++laneIndex)
+    {
+        auto& stepNumber = playingStepNumbers[(std::size_t) laneIndex];
+        stepNumber = noStepPlaying;
+        if (laneIndex >= numberOfLanes || positionInQuarterNotes < period.anchorInQuarterNotes)
+            continue;
+        const double stepDuration = pattern.lanes[(std::size_t) laneIndex].rate.getDurationInQuarterNotes().toDouble();
+        stepNumber = (std::int64_t) std::floor ((positionInQuarterNotes - period.anchorInQuarterNotes) / stepDuration +
+                                                tolerance);
+    }
 }
 
 void BeatsmithEngine::removeSoundingNote (std::size_t index) noexcept

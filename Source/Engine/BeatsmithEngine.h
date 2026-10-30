@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace beatsmith
 {
@@ -36,7 +37,7 @@ public:
     /** Trigs that can start in one block; further trigs in that block are skipped. */
     static constexpr std::size_t maximumTrigsPerBlock = 2048;
 
-    BeatsmithEngine() = default;
+    BeatsmithEngine() { playingStepNumbers.fill (noStepPlaying); }
 
     /** Replaces the pattern (a validated copy is kept). Sounding notes still end normally. */
     void setPattern (const Pattern& newPattern) noexcept;
@@ -67,6 +68,22 @@ public:
 
     /** @return The timeline, for tests. */
     const MusicalTimeline& getTimeline() const noexcept { return timeline; }
+
+    /** Value of getPlayingStepNumber() while nothing plays. */
+    static constexpr std::int64_t noStepPlaying = -1;
+
+    /**
+     * @return Which step of a lane was playing at the end of the last block, counted from the start of the
+     *         current realignment period (the step index is this number modulo the lane's length), or
+     *         noStepPlaying while the transport is stopped, for lanes not in use, and before the first step.
+     *         Used by the editor to draw playheads.
+     */
+    std::int64_t getPlayingStepNumber (int laneIndex) const noexcept
+    {
+        if (laneIndex < 0 || laneIndex >= maximumNumberOfLanes)
+            return noStepPlaying;
+        return playingStepNumbers[(std::size_t) laneIndex];
+    }
 
 private:
     /** A note that has been started and not yet ended. */
@@ -107,6 +124,7 @@ private:
                                NoteEventList& output) noexcept;
     void releaseAllNotesAt (int sampleOffset, NoteEventList& output) noexcept;
     void removeSoundingNote (std::size_t index) noexcept;
+    void updatePlayingStepNumbers (double positionInQuarterNotes) noexcept;
 
     Pattern pattern;
     MusicalTimeline timeline;
@@ -116,6 +134,8 @@ private:
 
     std::array<PendingTrig, maximumTrigsPerBlock> pendingTrigs {};
     std::size_t numberOfPendingTrigs = 0;
+
+    std::array<std::int64_t, maximumNumberOfLanes> playingStepNumbers {};
 
     bool isContinuingPreviousBlock = false;
     double expectedNextBlockStart = 0.0; ///< Where the next block starts if playback runs on.

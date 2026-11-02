@@ -196,6 +196,10 @@ the owner can test.
 - Ratchets (repeats within a step) and flams.
 - Euclidean fill per lane (pulses, steps, rotation).
 - Randomize/generate tools with amounts.
+- **Version A and Version B with morphing:** every pattern has two versions of its steps. A **Morph** control
+  (0 % = Version A, 100 % = Version B) moves seamlessly between them while playing; it is a knob in the editor
+  and a host parameter, so it can be automated or controlled by a MIDI CC. The editor switches which version
+  is shown and edited and can copy one version to the other. Details: **open decision 7**.
 - Manual: a dedicated chapter with diagrams and worked examples for every condition.
 
 ### Phase 4 – Patterns and structure
@@ -239,6 +243,21 @@ To be settled before the phase that needs them; each answer moves into section 2
    instrument stops a note on note-off (many samplers have a "gate" or "note-off" mode for this; many drum
    plug-ins and drum machines also have their own hi-hat choke, which then does the job without Beatsmith).
    Should Beatsmith also lengthen the open hi-hat's note up to the next choke, so it rings until it is cut?
+7. **Morphing between Version A and B** (phase 3) – steps are on or off, so "in between" needs a rule:
+   - *Step by step (suggested):* every step gets a fixed, random position on the morph range; once the Morph
+     control passes it, that step plays Version B instead of A. Turning the knob swaps steps one by one in
+     the same order every time, so a morph position always sounds the same. Where both versions have a trig,
+     its velocity is blended.
+   - *By chance:* at Morph *m*, each step plays B with probability *m* and A otherwise, newly decided on every
+     pass – livelier, but never the same twice.
+   - *Velocity crossfade:* A's trigs fade out while B's fade in; in the middle both play, which can sound
+     cluttered for drums.
+
+   Further points: do A and B share the lane set-up (notes, rates, lengths) and differ only in their steps
+   (suggested, so the grid stays one layout)? How is the Morph control mapped to a MIDI CC – through the DAW's
+   own parameter mapping, a MIDI-learn in Beatsmith (which would then filter that CC out of the pass-through),
+   or both? Does Morph move instantly or only at step boundaries? The name "Version A/B" avoids a mix-up with
+   the A:B trig conditions.
 
 ## 7. Technical notes and risks
 
